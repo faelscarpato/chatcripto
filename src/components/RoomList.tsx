@@ -39,7 +39,7 @@ const FILTER_OPTIONS = [
 
 export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: RoomListProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null; username: string } | null>(null);
+  const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null; username: string; avatar_url?: string } | null>(null);
   const [userAccess, setUserAccess] = useState<string[]>([]);
   const [roomMemberCounts, setRoomMemberCounts] = useState<Record<string, number>>({});
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
@@ -67,7 +67,10 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
         .single();
 
       if (data) {
-        setUserProfile(data);
+        setUserProfile({
+          ...data,
+          avatar_url: typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '',
+        });
       }
     }
   };
@@ -200,7 +203,7 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
 
             <div className="home-greeting__actions">
               <button type="button" className="home-avatar-button" onClick={onOpenProfile} aria-label="Abrir perfil">
-                <Avatar fallback={greetingName} size="md" />
+                <Avatar fallback={greetingName} size="md" src={userProfile?.avatar_url || undefined} />
               </button>
             </div>
           </div>

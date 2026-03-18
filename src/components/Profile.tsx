@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bell,
@@ -52,10 +52,45 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   const [accessCount, setAccessCount] = useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [formData, setFormData] = useState<Partial<ProfileData>>({});
+  const [avatarSrc, setAvatarSrc] = useState<string>('');
+  const [pendingAvatarSrc, setPendingAvatarSrc] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void fetchProfile();
   }, []);
+
+  const buildAvatarDataUrl = async (file: File) => {
+    const imageUrl = URL.createObjectURL(file);
+
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = () => reject(new Error('Nao foi possivel carregar a imagem.'));
+        nextImage.src = imageUrl;
+      });
+
+      const size = 256;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Nao foi possivel preparar a imagem.');
+      }
+
+      const sourceSize = Math.min(image.width, image.height);
+      const sourceX = (image.width - sourceSize) / 2;
+      const sourceY = (image.height - sourceSize) / 2;
+
+      context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -68,6 +103,9 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
       }
 
       setEmail(user.email ?? '');
+      const authAvatar = typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '';
+      setAvatarSrc(authAvatar);
+      setPendingAvatarSrc(authAvatar);
 
       const [{ data, error }, { count }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
@@ -130,22 +168,61 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
     try {
       const age_group = calculateAgeGroup(formData.birth_date || '');
       const updates = {
-        ...formData,
+        full_name: formData.full_name || '',
+        cpf: formData.cpf || '',
+        birth_date: formData.birth_date || '',
+        address: formData.address || '',
         age_group,
-        updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('profiles').update(updates).eq('id', profile.id);
-      if (error) {
-        throw error;
+      const [{ error: profileError }, authResult] = await Promise.all([
+        supabase.from('profiles').update(updates).eq('id', profile.id),
+        pendingAvatarSrc !== avatarSrc
+          ? supabase.auth.updateUser({
+              data: {
+                avatar_url: pendingAvatarSrc,
+              },
+            })
+          : Promise.resolve({ error: null }),
+      ]);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      if (authResult.error) {
+        throw authResult.error;
       }
 
       setProfile({ ...profile, ...updates } as ProfileData);
+      setAvatarSrc(pendingAvatarSrc);
       alert('Perfil atualizado com sucesso!');
     } catch (error: any) {
       alert('Erro ao atualizar perfil: ' + error.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAvatarSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('A foto deve ter no maximo 5MB.');
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const nextAvatar = await buildAvatarDataUrl(file);
+      setPendingAvatarSrc(nextAvatar);
+    } catch (error: any) {
+      alert('Erro ao preparar a foto: ' + error.message);
+    } finally {
+      event.target.value = '';
     }
   };
 
@@ -174,7 +251,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
             onClick={onNavigateHome}
           />
           <span className="profile-header__spacer" aria-hidden="true" />
-          <Avatar fallback={displayName} size="sm" />
+          <Avatar fallback={displayName} size="sm" src={pendingAvatarSrc || undefined} />
         </div>
       </header>
 
@@ -182,10 +259,22 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         <section className="profile-hero">
           <div className="profile-avatar-stage">
             <div className="profile-avatar-ring" aria-hidden="true" />
-            <Avatar fallback={displayName} size="lg" />
-            <span className="profile-avatar-edit" aria-hidden="true">
+            <Avatar fallback={displayName} size="lg" src={pendingAvatarSrc || undefined} />
+            <button
+              type="button"
+              className="profile-avatar-edit"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Selecionar foto de perfil"
+            >
               <Camera size={18} />
-            </span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={handleAvatarSelect}
+            />
           </div>
 
           <div className="section-stack section-stack--sm profile-hero__copy">
