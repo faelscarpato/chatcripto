@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Home, PlusSquare, SlidersHorizontal, UserRound } from 'lucide-react';
 import { deriveKey, getSalt } from '../lib/crypto';
+import { shareRoomInvite } from '../lib/share';
 import { supabase } from '../lib/supabase';
 import {
   Avatar,
@@ -24,9 +25,16 @@ interface Room {
 }
 
 interface RoomListProps {
-  onJoinRoom: (room: { id: string; name: string; key: CryptoKey }) => void;
+  onJoinRoom: (room: {
+    id: string;
+    name: string;
+    key: CryptoKey;
+    requirePasswordEveryTime?: boolean;
+  }) => void;
   onOpenProfile: () => void;
   onOpenCreate: () => void;
+  invitedRoomId?: string | null;
+  onInviteHandled?: () => void;
 }
 
 const FILTER_OPTIONS = [
@@ -37,10 +45,17 @@ const FILTER_OPTIONS = [
   { id: 'view-once', label: 'Visualizacao unica' },
 ] as const;
 
-export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: RoomListProps) {
+export default function RoomList({
+  onJoinRoom,
+  onOpenProfile,
+  onOpenCreate,
+  invitedRoomId = null,
+  onInviteHandled,
+}: RoomListProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null; username: string; avatar_url?: string } | null>(null);
   const [userAccess, setUserAccess] = useState<string[]>([]);
+  const [accessReady, setAccessReady] = useState(false);
   const [roomMemberCounts, setRoomMemberCounts] = useState<Record<string, number>>({});
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
   const [inputKey, setInputKey] = useState('');
@@ -53,6 +68,20 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
     void fetchUserAccess();
     void fetchRoomMemberCounts();
   }, []);
+
+  useEffect(() => {
+    if (!invitedRoomId || rooms.length === 0 || !accessReady) {
+      return;
+    }
+
+    const invitedRoom = rooms.find((room) => room.id === invitedRoomId);
+    if (!invitedRoom) {
+      return;
+    }
+
+    void tryJoinDirectly(invitedRoom);
+    onInviteHandled?.();
+  }, [accessReady, invitedRoomId, onInviteHandled, rooms, userAccess]);
 
   const fetchProfile = async () => {
     const {
@@ -93,6 +122,8 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
         setUserAccess(data.map((access) => access.room_id));
       }
     }
+
+    setAccessReady(true);
   };
 
   const fetchRoomMemberCounts = async () => {
@@ -130,7 +161,12 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
     if (hasAccess && !room.require_password_every_time && savedKey) {
       const salt = getSalt(room.id);
       const key = await deriveKey(savedKey, salt);
-      onJoinRoom({ id: room.id, name: room.name, key });
+      onJoinRoom({
+        id: room.id,
+        name: room.name,
+        key,
+        requirePasswordEveryTime: room.require_password_every_time,
+      });
       return;
     }
 
@@ -152,7 +188,12 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
     const key = await deriveKey(inputKey, salt);
     sessionStorage.setItem(`room_key_${room.id}`, inputKey);
     await registerAccess(room.id);
-    onJoinRoom({ id: room.id, name: room.name, key });
+    onJoinRoom({
+      id: room.id,
+      name: room.name,
+      key,
+      requirePasswordEveryTime: room.require_password_every_time,
+    });
   };
 
   const filteredRooms = useMemo(() => {
@@ -280,6 +321,27 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
                   selected={joiningRoomId === room.id}
                   directAccess={directAccess}
                   locked={!directAccess}
+                  onShare={() => {
+                    void shareRoomInvite({
+                      roomId: room.id,
+                      roomName: room.name,
+                      requirePasswordEveryTime: room.require_password_every_time,
+                    })
+                      .then((result) => {
+                        if (result === 'copied') {
+                          alert(
+                            room.require_password_every_time
+                              ? 'Convite copiado. Envie a senha da sala separadamente.'
+                              : 'Convite copiado para a area de transferencia.',
+                          );
+                        }
+                      })
+                      .catch((error: any) => {
+                        if (error?.name !== 'AbortError') {
+                          alert('Nao foi possivel compartilhar o convite.');
+                        }
+                      });
+                  }}
                   onRequestJoin={() => void tryJoinDirectly(room)}
                   joinForm={
                     joiningRoomId === room.id ? (

@@ -884,7 +884,7 @@
 .room-card__cta {
   position: relative;
   z-index: 1;
-  min-width: 6.5rem;
+  min-width: 0;
   padding-inline: 0.85rem;
   background: var(--surface-room-cta);
   color: var(--color-muted);
@@ -893,6 +893,19 @@
 
 .room-card__cta:hover {
   color: var(--color-text);
+}
+
+.room-card__actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.625rem;
+}
+
+.room-card__share,
+.room-card__cta {
+  width: 100%;
+  justify-content: center;
 }
 
 .room-card__description,
@@ -904,8 +917,9 @@
 }
 
 .room-card__footer {
-  justify-content: space-between;
-  flex-wrap: wrap;
+  justify-content: stretch;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.75rem;
 }
 
@@ -2009,6 +2023,68 @@
 
 .chat-security-meta {
   justify-content: center;
+}
+
+.invite-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.invite-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: var(--color-overlay);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+}
+
+.invite-modal__card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 32rem);
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.25rem;
+}
+
+.invite-modal__header,
+.invite-modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.invite-modal__actions {
+  flex-wrap: wrap;
+}
+
+.invite-modal__link-box {
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-soft);
+  background: var(--surface-input);
+}
+
+.invite-modal__link {
+  display: block;
+  color: var(--color-text);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.invite-modal__password {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.invite-modal__password-box {
+  border-color: var(--color-border-neon);
 }
 
 .media-gate,

@@ -1,4 +1,4 @@
-import { ArrowRight, Eye, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, Eye, Link2, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Badge } from './Badge';
 import { Button } from './Button';
@@ -21,6 +21,7 @@ interface RoomCardProps {
   directAccess?: boolean;
   locked?: boolean;
   joinForm?: ReactNode;
+  onShare?: () => void;
   onRequestJoin: () => void;
 }
 
@@ -39,6 +40,7 @@ export function RoomCard({
   directAccess = false,
   locked = false,
   joinForm,
+  onShare,
   onRequestJoin,
 }: RoomCardProps) {
   return (
@@ -84,16 +86,29 @@ export function RoomCard({
           </div>
         </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="room-card__cta"
-          onClick={onRequestJoin}
-          leadingIcon={<Users size={16} />}
-          trailingIcon={<ArrowRight size={14} />}
-        >
-          {selected ? 'Confirmar' : directAccess ? 'Entrar' : 'Abrir'}
-        </Button>
+        <div className="room-card__actions">
+          {onShare ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="room-card__share"
+              onClick={onShare}
+              leadingIcon={<Link2 size={15} />}
+            >
+              Convidar
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="room-card__cta"
+            onClick={onRequestJoin}
+            leadingIcon={<Users size={16} />}
+            trailingIcon={<ArrowRight size={14} />}
+          >
+            {selected ? 'Confirmar' : directAccess ? 'Entrar' : 'Abrir'}
+          </Button>
+        </div>
       </div>
 
       {joinForm}

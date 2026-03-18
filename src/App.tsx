@@ -10,11 +10,22 @@ import { supabase } from './lib/supabase';
 
 type AppScreen = 'home' | 'create' | 'profile';
 
+function getInviteRoomId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('room');
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [currentRoom, setCurrentRoom] = useState<{ id: string; name: string; key: CryptoKey } | null>(null);
+  const [currentRoom, setCurrentRoom] = useState<{
+    id: string;
+    name: string;
+    key: CryptoKey;
+    requirePasswordEveryTime?: boolean;
+  } | null>(null);
   const [screen, setScreen] = useState<AppScreen>('home');
   const [loading, setLoading] = useState(true);
+  const [invitedRoomId, setInvitedRoomId] = useState<string | null>(() => getInviteRoomId());
 
   useEffect(() => {
     Promise.all([
@@ -78,6 +89,8 @@ export default function App() {
       onJoinRoom={(room) => setCurrentRoom(room)}
       onOpenProfile={() => setScreen('profile')}
       onOpenCreate={() => setScreen('create')}
+      invitedRoomId={invitedRoomId}
+      onInviteHandled={() => setInvitedRoomId(null)}
     />
   );
 }

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, Link2, LockKeyhole, Share2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { base64ToUint8Array, decryptMessage, encryptData, encryptMessage } from '../lib/crypto';
+import { buildRoomInviteUrl, copyRoomInvite, shareRoomInvite } from '../lib/share';
 import { supabase } from '../lib/supabase';
 import { ViewOnceBubble } from './ViewOnceBubble';
 import {
   Badge,
+  Button,
   Card,
   Composer,
   IconButton,
@@ -29,7 +31,7 @@ interface Message {
 }
 
 interface ChatProps {
-  room: { id: string; name: string; key: CryptoKey };
+  room: { id: string; name: string; key: CryptoKey; requirePasswordEveryTime?: boolean };
   onLeave: () => void;
 }
 
@@ -68,6 +70,10 @@ export default function Chat({ room, onLeave }: ChatProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  const inviteUrl = buildRoomInviteUrl(room.id);
+  const roomPassword = sessionStorage.getItem(`room_key_${room.id}`) ?? '';
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
@@ -125,6 +131,21 @@ export default function Chat({ room, onLeave }: ChatProps) {
       scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (!inviteOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setInviteOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [inviteOpen]);
 
   const fetchMessages = async () => {
     const { data } = await supabase
@@ -322,6 +343,67 @@ export default function Chat({ room, onLeave }: ChatProps) {
     await supabase.from('messages').delete().eq('media_id', mediaId);
   };
 
+  const shareInvite = async () => {
+    try {
+      const result = await shareRoomInvite({
+        roomId: room.id,
+        roomName: room.name,
+        requirePasswordEveryTime: room.requirePasswordEveryTime,
+      });
+
+      if (result === 'copied') {
+        alert(
+          room.requirePasswordEveryTime
+            ? 'Convite copiado. Envie a senha da sala separadamente.'
+            : 'Convite copiado para a area de transferencia.',
+        );
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        return;
+      }
+
+      alert('Nao foi possivel compartilhar o convite.');
+    }
+  };
+
+  const copyInvite = async () => {
+    try {
+      await copyRoomInvite({
+        roomId: room.id,
+        requirePasswordEveryTime: room.requirePasswordEveryTime,
+        password: roomPassword || undefined,
+      });
+      alert(
+        room.requirePasswordEveryTime
+          ? roomPassword
+            ? 'Link e senha copiados para a area de transferencia.'
+            : 'Link copiado. Envie a senha da sala separadamente.'
+          : 'Link copiado para a area de transferencia.',
+      );
+    } catch {
+      alert('Nao foi possivel copiar o convite.');
+    }
+  };
+
+  const copyPassword = async () => {
+    if (!roomPassword) {
+      alert('Nenhuma senha salva nesta sessao para esta sala.');
+      return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(roomPassword);
+      } else {
+        window.prompt('Copie a senha da sala:', roomPassword);
+      }
+      alert('Senha da sala copiada.');
+    } catch {
+      alert('Nao foi possivel copiar a senha da sala.');
+    }
+  };
+
   return (
     <div className="page-shell chat-page">
       <Topbar
@@ -330,11 +412,21 @@ export default function Chat({ room, onLeave }: ChatProps) {
         subtitle={
           <span className="toolbar-row text-offline">
             <LockKeyhole size={14} />
-            <span>Sala protegida e efemera</span>
+            <span>{room.requirePasswordEveryTime ? 'Sala privada · senha obrigatoria' : 'Sala protegida e efemera'}</span>
           </span>
         }
         leading={<IconButton icon={<ArrowLeft size={18} />} label="Voltar" onClick={onLeave} />}
-        trailing={<TimerPill label="20 min" />}
+        trailing={
+          <div className="toolbar-row chat-topbar__actions">
+            <TimerPill label="20 min" />
+            <IconButton
+              icon={<Link2 size={18} />}
+              label="Convidar amigos"
+              variant="ghost"
+              onClick={() => setInviteOpen(true)}
+            />
+          </div>
+        }
       />
 
       <main className="page-container chat-main chat-layout">
@@ -430,6 +522,61 @@ export default function Chat({ room, onLeave }: ChatProps) {
           />
         </div>
       </div>
+
+      {inviteOpen ? (
+        <div className="invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
+          <button type="button" className="invite-modal__backdrop" aria-label="Fechar convite" onClick={() => setInviteOpen(false)} />
+          <Card className="invite-modal__card">
+            <div className="invite-modal__header">
+              <div className="section-stack section-stack--sm">
+                <p className="eyebrow">Convidar amigos</p>
+                <h2 id="invite-modal-title" className="topbar__title">Compartilhe esta sala</h2>
+              </div>
+              <IconButton
+                icon={<X size={18} />}
+                label="Fechar convite"
+                variant="ghost"
+                onClick={() => setInviteOpen(false)}
+              />
+            </div>
+
+            <div className="section-stack section-stack--sm">
+              <p className="text-muted">
+                {room.requirePasswordEveryTime
+                  ? 'Sala privada: compartilhe o link e envie a senha da sala separadamente.'
+                  : 'Compartilhe o link abaixo para convidar amigos para esta sala.'}
+              </p>
+              <div className="invite-modal__link-box">
+                <span className="invite-modal__link">{inviteUrl}</span>
+              </div>
+              {room.requirePasswordEveryTime ? (
+                <div className="invite-modal__password">
+                  <span className="ui-field__label">Senha da sala</span>
+                  <div className="invite-modal__link-box invite-modal__password-box">
+                    <span className="invite-modal__link">
+                      {roomPassword || 'Nenhuma senha salva nesta sessao. Entre novamente com a senha da sala para copiar.'}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="invite-modal__actions">
+              <Button variant="secondary" leadingIcon={<Copy size={16} />} onClick={() => void copyInvite()}>
+                Copiar link
+              </Button>
+              {room.requirePasswordEveryTime ? (
+                <Button variant="secondary" leadingIcon={<Copy size={16} />} onClick={() => void copyPassword()}>
+                  Copiar senha
+                </Button>
+              ) : null}
+              <Button leadingIcon={<Share2 size={16} />} onClick={() => void shareInvite()}>
+                Compartilhar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -14,7 +14,7 @@ import {
 } from './ui';
 
 interface CreateRoomProps {
-  onJoinRoom: (room: { id: string; name: string; key: CryptoKey }) => void;
+  onJoinRoom: (room: { id: string; name: string; key: CryptoKey; requirePasswordEveryTime?: boolean }) => void;
   onNavigateHome: () => void;
   onNavigateProfile: () => void;
 }
@@ -94,7 +94,12 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
       const key = await deriveKey(newRoomKey, salt);
       await registerAccess(data.id);
       sessionStorage.setItem(`room_key_${data.id}`, newRoomKey);
-      onJoinRoom({ id: data.id, name: data.name, key });
+      onJoinRoom({
+        id: data.id,
+        name: data.name,
+        key,
+        requirePasswordEveryTime: data.require_password_every_time,
+      });
     }
 
     setSubmitting(false);
