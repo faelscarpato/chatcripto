@@ -85,14 +85,14 @@ export function RoomCard({
         </div>
 
         <Button
-          variant={directAccess ? 'primary' : 'secondary'}
+          variant="ghost"
           size="sm"
           className="room-card__cta"
           onClick={onRequestJoin}
-          leadingIcon={directAccess ? <Users size={16} /> : undefined}
-          trailingIcon={<ArrowRight size={16} />}
+          leadingIcon={<Users size={16} />}
+          trailingIcon={<ArrowRight size={14} />}
         >
-          {directAccess ? 'Entrar' : selected ? 'Confirmar' : 'Abrir'}
+          {selected ? 'Confirmar' : directAccess ? 'Entrar' : 'Abrir'}
         </Button>
       </div>
 

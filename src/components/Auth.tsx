@@ -57,9 +57,7 @@ export default function Auth() {
               <div className="auth-brand__halo" />
               <img src="/chatcripto-logo.png" alt="" className="auth-brand__logo" />
             </div>
-            <h1 className="auth-brand__title">
-              Chat<span className="hero-logo__accent">Cripto</span>
-            </h1>
+            
           </div>
 
           <div className="auth-tabs" role="tablist" aria-label="Autenticação">
@@ -84,7 +82,7 @@ export default function Auth() {
           </div>
 
           <Card className="auth-card">
-            <form className="page-stack" onSubmit={handleAuth}>
+            <form className="page-stack auth-form" onSubmit={handleAuth}>
               <Input
                 label={isRegistering ? 'E-mail' : undefined}
                 type="email"
@@ -141,6 +139,7 @@ export default function Auth() {
                 placeholder="Senha"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                toggleMode={!isRegistering ? 'text' : 'icon'}
                 required
               />
 
@@ -191,7 +190,15 @@ export default function Auth() {
             </div>
 
             <button type="button" className="auth-link" onClick={() => setIsRegistering((current) => !current)}>
-              {isRegistering ? 'Ja tem conta? Entrar' : 'Ainda nao tem conta? Registre-se'}
+              {isRegistering ? (
+                <>
+                  Ja tem conta? <span className="auth-link__accent">Entrar</span>
+                </>
+              ) : (
+                <>
+                  Ainda nao tem conta? <span className="auth-link__accent">Registre-se</span>
+                </>
+              )}
             </button>
           </Card>
         </section>

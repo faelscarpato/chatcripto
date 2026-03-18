@@ -6,12 +6,14 @@ interface PasswordFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>,
   label?: string;
   hint?: string;
   error?: string;
+  toggleMode?: 'icon' | 'text';
 }
 
 export function PasswordField({
   label,
   hint,
   error,
+  toggleMode = 'icon',
   className,
   id,
   ...props
@@ -35,11 +37,17 @@ export function PasswordField({
         />
         <button
           type="button"
-          className="ui-input__trailing"
+          className={cn('ui-input__trailing', toggleMode === 'text' && 'ui-input__trailing--text')}
           onClick={() => setVisible((current) => !current)}
           aria-label={visible ? 'Ocultar senha' : 'Mostrar senha'}
         >
-          {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+          {toggleMode === 'text' ? (
+            <span>{visible ? 'Ocultar' : 'Mostrar'}</span>
+          ) : visible ? (
+            <EyeOff size={18} />
+          ) : (
+            <Eye size={18} />
+          )}
         </button>
       </span>
       {error ? (

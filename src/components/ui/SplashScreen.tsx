@@ -8,7 +8,7 @@ export function SplashScreen() {
         </div>
 
         <h1 className="splash-screen__title">
-          Chat<span className="splash-screen__accent">Cripto</span>
+         
         </h1>
 
         <div className="splash-screen__tagline">

@@ -260,7 +260,7 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
 
               const accessLabel = directAccess ? 'Acesso salvo' : 'Com senha';
               const presenceCount = roomMemberCounts[room.id] ?? 0;
-              const presenceLabel = presenceCount === 1 ? 'pessoa com acesso' : 'pessoas com acesso';
+              const presenceLabel = presenceCount === 1 ? 'pessoa online' : 'pessoas online';
 
               return (
                 <RoomCard

@@ -52,6 +52,13 @@ function getSenderVariant(userId: string) {
   return Math.abs(hash) % SENDER_VARIANT_COUNT;
 }
 
+function getChatDividerLabel() {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+  }).format(new Date());
+}
+
 export default function Chat({ room, onLeave }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -343,34 +350,41 @@ export default function Chat({ room, onLeave }: ChatProps) {
                   </p>
                 </Card>
               ) : (
-                messages.map((msg, idx) => {
-                  const isMe = msg.user_id === user?.id;
-                  const prevMsg = messages[idx - 1];
-                  const isSameUser = prevMsg?.user_id === msg.user_id;
+                <>
+                  <div className="chat-divider" aria-hidden="true">
+                    <span className="chat-divider__line" />
+                    <span className="chat-divider__label">{getChatDividerLabel()}</span>
+                    <span className="chat-divider__line" />
+                  </div>
+                  {messages.map((msg, idx) => {
+                    const isMe = msg.user_id === user?.id;
+                    const prevMsg = messages[idx - 1];
+                    const isSameUser = prevMsg?.user_id === msg.user_id;
 
-                  return (
-                    <div key={msg.id} className={cn(isSameUser && 'section-stack section-stack--sm')}>
-                      <MessageBubble
-                        own={isMe}
-                        author={getAuthorLabel(msg.user_id)}
-                        time={new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        senderVariant={getSenderVariant(msg.user_id)}
-                        showAvatar={!isSameUser}
-                        content={
-                          msg.is_view_once ? (
-                            <ViewOnceBubble
-                              mediaId={msg.media_id!}
-                              onViewed={handleMediaViewed}
-                              decryptMedia={decryptMedia}
-                            />
-                          ) : (
-                            <p>{msg.decrypted_content}</p>
-                          )
-                        }
-                      />
-                    </div>
-                  );
-                })
+                    return (
+                      <div key={msg.id} className={cn(isSameUser && 'section-stack section-stack--sm')}>
+                        <MessageBubble
+                          own={isMe}
+                          author={getAuthorLabel(msg.user_id)}
+                          time={new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          senderVariant={getSenderVariant(msg.user_id)}
+                          showAvatar={!isSameUser}
+                          content={
+                            msg.is_view_once ? (
+                              <ViewOnceBubble
+                                mediaId={msg.media_id!}
+                                onViewed={handleMediaViewed}
+                                decryptMedia={decryptMedia}
+                              />
+                            ) : (
+                              <p>{msg.decrypted_content}</p>
+                            )
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </>
               )}
               <div ref={scrollRef} />
             </div>
