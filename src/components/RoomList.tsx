@@ -1,21 +1,17 @@
-import { useEffect, useState } from 'react';
-import { Home, LogOut, PlusSquare, UserRound } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Home, PlusSquare, SlidersHorizontal, UserRound } from 'lucide-react';
 import { deriveKey, getSalt } from '../lib/crypto';
 import { supabase } from '../lib/supabase';
 import {
+  Avatar,
   Badge,
   BottomNav,
   Button,
   Card,
   Chip,
-  HeroLogoBlock,
-  IconButton,
-  OnlineCount,
   PasswordField,
   RoomCard,
   SearchBarPill,
-  TimerPill,
-  Topbar,
 } from './ui';
 
 interface Room {
@@ -24,6 +20,7 @@ interface Room {
   age_group: string;
   category: string;
   require_password_every_time: boolean;
+  created_at: string;
 }
 
 interface RoomListProps {
@@ -32,21 +29,29 @@ interface RoomListProps {
   onOpenCreate: () => void;
 }
 
-const CATEGORIES = ['Geral', 'Tecnologia', 'Lazer', 'Trabalho', 'Privado', '+18'];
+const FILTER_OPTIONS = [
+  { id: 'featured', label: 'Em alta' },
+  { id: 'new', label: 'Novas' },
+  { id: 'private', label: 'Privadas' },
+  { id: '+18', label: '+18' },
+  { id: 'view-once', label: 'Visualizacao unica' },
+] as const;
 
 export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: RoomListProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null } | null>(null);
+  const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null; username: string } | null>(null);
   const [userAccess, setUserAccess] = useState<string[]>([]);
+  const [roomMemberCounts, setRoomMemberCounts] = useState<Record<string, number>>({});
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
   const [inputKey, setInputKey] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('Todas');
+  const [selectedFilter, setSelectedFilter] = useState<(typeof FILTER_OPTIONS)[number]['id']>('featured');
 
   useEffect(() => {
     void fetchProfile();
     void fetchRooms();
     void fetchUserAccess();
+    void fetchRoomMemberCounts();
   }, []);
 
   const fetchProfile = async () => {
@@ -57,7 +62,7 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
     if (user) {
       const { data } = await supabase
         .from('profiles')
-        .select('age_group, full_name')
+        .select('age_group, full_name, username')
         .eq('id', user.id)
         .single();
 
@@ -85,6 +90,20 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
         setUserAccess(data.map((access) => access.room_id));
       }
     }
+  };
+
+  const fetchRoomMemberCounts = async () => {
+    const { data } = await supabase.from('room_access').select('room_id');
+    if (!data) {
+      return;
+    }
+
+    const counts = data.reduce<Record<string, number>>((accumulator, access) => {
+      accumulator[access.room_id] = (accumulator[access.room_id] ?? 0) + 1;
+      return accumulator;
+    }, {});
+
+    setRoomMemberCounts(counts);
   };
 
   const registerAccess = async (roomId: string) => {
@@ -133,82 +152,115 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
     onJoinRoom({ id: room.id, name: room.name, key });
   };
 
-  const filteredRooms = rooms.filter((room) => {
-    const matchesSearch = room.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'Todas' || room.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredRooms = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    const nextRooms = rooms.filter((room) => {
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        room.name.toLowerCase().includes(normalizedSearch) ||
+        room.category.toLowerCase().includes(normalizedSearch) ||
+        room.id.toLowerCase().includes(normalizedSearch);
+
+      const matchesFilter =
+        selectedFilter === 'featured' ||
+        selectedFilter === 'new' ||
+        selectedFilter === 'view-once' ||
+        (selectedFilter === 'private' && room.require_password_every_time) ||
+        (selectedFilter === '+18' && room.age_group === '+18');
+
+      return matchesSearch && matchesFilter;
+    });
+
+    if (selectedFilter === 'featured') {
+      return nextRooms.sort((left, right) => (roomMemberCounts[right.id] ?? 0) - (roomMemberCounts[left.id] ?? 0));
+    }
+
+    if (selectedFilter === 'new') {
+      return nextRooms.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+    }
+
+    return nextRooms;
+  }, [roomMemberCounts, rooms, searchTerm, selectedFilter]);
+
+  const greetingName =
+    userProfile?.full_name?.split(' ')[0] ||
+    userProfile?.username ||
+    'Usuario';
 
   return (
-    <div className="page-shell">
-      <Topbar
-        title="Home"
-        subtitle="Descubra salas efêmeras e entre com chave persistente."
-        trailing={
-          <>
-            <Button variant="ghost" size="sm" leadingIcon={<PlusSquare size={16} />} onClick={onOpenCreate}>
-              Criar sala
-            </Button>
-            <IconButton icon={<UserRound size={18} />} label="Abrir perfil" onClick={onOpenProfile} />
-            <IconButton icon={<LogOut size={18} />} label="Sair" variant="danger" onClick={() => void supabase.auth.signOut()} />
-          </>
-        }
-      />
+    <div className="page-shell home-page">
+      <main className="page-container page-stack home-main">
+        <section className="home-hero">
+          <div className="home-greeting">
+            <div className="section-stack section-stack--sm">
+              <h1 className="home-greeting__title">Hi, {greetingName} 👋</h1>
+              <p className="home-greeting__subtitle">Converse com privacidade</p>
+            </div>
 
-      <main className="page-container page-stack">
-        <HeroLogoBlock
-          eyebrow="Sala de descoberta"
-          title={
-            <>
-              Chat<span className="hero-logo__accent">Cripto</span>
-            </>
-          }
-          subtitle={`Olá${userProfile?.full_name ? `, ${userProfile.full_name.split(' ')[0]}` : ''}. Acesso ${
-            userProfile?.age_group === '+18' ? 'premium com salas adultas liberadas.' : 'seguro com filtros móveis ativos.'
-          }`}
-          meta={
-            <>
-              <TimerPill label="Mensagens expiram em 20 min" />
-              <OnlineCount count={filteredRooms.length} />
-              <Badge variant={userProfile?.age_group === '+18' ? 'danger' : 'success'}>
-                {userProfile?.age_group ?? 'Livre'}
-              </Badge>
-            </>
-          }
-        />
+            <div className="home-greeting__actions">
+              <button type="button" className="home-avatar-button" onClick={onOpenProfile} aria-label="Abrir perfil">
+                <Avatar fallback={greetingName} size="md" />
+              </button>
+            </div>
+          </div>
 
-        <Card className="page-stack">
-          <div className="toolbar-row">
-            <SearchBarPill value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
-            <Button variant="primary" leadingIcon={<PlusSquare size={18} />} onClick={onOpenCreate}>
-              Nova sala
+          <SearchBarPill
+            label="Buscar salas"
+            placeholder="Buscar salas, codigos ou usuarios"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            trailing={
+              <button type="button" className="home-search-filter" aria-label="Filtros">
+                <SlidersHorizontal size={18} />
+              </button>
+            }
+          />
+        </section>
+
+        <section className="page-stack section-stack--sm">
+          <div className="home-section-header">
+            <div>
+              <p className="home-section-title">Em alta</p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={onOpenCreate}>
+              Ver mais
             </Button>
           </div>
-          <div className="toolbar-row">
-            {['Todas', ...CATEGORIES].map((category) => (
+
+          <div className="home-filter-row">
+            {FILTER_OPTIONS.map((filter) => (
               <Chip
-                key={category}
-                selected={selectedCategory === category}
-                onClick={() => setSelectedCategory(category)}
+                key={filter.id}
+                selected={selectedFilter === filter.id}
+                className="home-filter-chip"
+                onClick={() => setSelectedFilter(filter.id)}
               >
-                {category}
+                {filter.label}
               </Chip>
             ))}
           </div>
-        </Card>
+        </section>
 
         <section className="page-stack">
-          <div className="toolbar-row">
-            <p className="eyebrow">Salas protegidas</p>
-            <Badge variant="info">{filteredRooms.length} visíveis</Badge>
-          </div>
-
-          <div className="room-grid">
+          <div className="room-grid home-room-grid">
             {filteredRooms.map((room) => {
               const directAccess =
                 userAccess.includes(room.id) &&
                 !room.require_password_every_time &&
                 Boolean(sessionStorage.getItem(`room_key_${room.id}`));
+
+              const summary = room.require_password_every_time
+                ? 'Sala privada · com senha'
+                : `Sala segura · ${room.category.toLowerCase()}`;
+
+              const featureLabel = room.require_password_every_time
+                ? 'Senha recorrente'
+                : 'Visualizacao unica';
+
+              const accessLabel = directAccess ? 'Acesso salvo' : 'Com senha';
+              const presenceCount = roomMemberCounts[room.id] ?? 0;
+              const presenceLabel = presenceCount === 1 ? 'pessoa com acesso' : 'pessoas com acesso';
 
               return (
                 <RoomCard
@@ -217,6 +269,11 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
                   roomId={room.id}
                   category={room.category}
                   ageGroup={room.age_group}
+                  summary={summary}
+                  featureLabel={featureLabel}
+                  accessLabel={accessLabel}
+                  presenceCount={presenceCount}
+                  presenceLabel={presenceLabel}
                   selected={joiningRoomId === room.id}
                   directAccess={directAccess}
                   locked={!directAccess}
@@ -236,7 +293,7 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
                           <Button variant="ghost" type="button" onClick={() => setJoiningRoomId(null)}>
                             Cancelar
                           </Button>
-                          <Button type="submit">Entrar agora</Button>
+                          <Button type="submit">Entrar</Button>
                         </div>
                       </form>
                     ) : null
@@ -250,7 +307,7 @@ export default function RoomList({ onJoinRoom, onOpenProfile, onOpenCreate }: Ro
             <Card className="empty-state">
               <Badge variant="warning">Vazio</Badge>
               <h3 className="topbar__title">Nenhuma sala encontrada</h3>
-              <p className="text-muted">Ajuste a busca ou o filtro para localizar uma sala protegida.</p>
+              <p className="text-muted">Ajuste a busca ou escolha outra categoria.</p>
             </Card>
           ) : null}
         </section>

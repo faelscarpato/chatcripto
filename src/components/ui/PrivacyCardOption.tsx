@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Card } from './Card';
+import { cn } from '../../lib/cn';
 
 interface PrivacyCardOptionProps {
   icon: LucideIcon;
@@ -8,6 +8,9 @@ interface PrivacyCardOptionProps {
   description: string;
   selected?: boolean;
   badge?: ReactNode;
+  trailing?: ReactNode;
+  disabled?: boolean;
+  className?: string;
   onClick?: () => void;
 }
 
@@ -17,20 +20,32 @@ export function PrivacyCardOption({
   description,
   selected = false,
   badge,
+  trailing,
+  disabled = false,
+  className,
   onClick,
 }: PrivacyCardOptionProps) {
   return (
-    <Card className="privacy-option" interactive selected={selected} onClick={onClick}>
-      <div className="toolbar-row">
+    <button
+      type="button"
+      className={cn('privacy-option', selected && 'privacy-option--selected', className)}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={selected}
+    >
+      <div className="privacy-option__body">
         <span className="privacy-option__icon">
           <Icon size={20} />
         </span>
-        {badge}
+        <div className="section-stack section-stack--sm privacy-option__copy">
+          <div className="toolbar-row privacy-option__title-row">
+            <h3 className="privacy-option__title">{title}</h3>
+            {badge}
+          </div>
+          <p className="privacy-option__text">{description}</p>
+        </div>
       </div>
-      <div className="section-stack section-stack--sm">
-        <h3 className="privacy-option__title">{title}</h3>
-        <p className="privacy-option__text">{description}</p>
-      </div>
-    </Card>
+      {trailing ? <span className="privacy-option__trailing">{trailing}</span> : null}
+    </button>
   );
 }

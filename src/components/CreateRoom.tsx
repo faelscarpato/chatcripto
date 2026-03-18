@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Home, KeyRound, LockKeyhole, PlusSquare, ShieldCheck, Sparkles, UserRound } from 'lucide-react';
+import { ArrowLeft, Clock3, Home, KeyRound, LockKeyhole, PlusSquare, ShieldCheck, UserRound } from 'lucide-react';
 import { deriveKey, getSalt } from '../lib/crypto';
 import { supabase } from '../lib/supabase';
 import {
-  Badge,
   BottomNav,
   Button,
   Card,
-  HeroLogoBlock,
+  Chip,
+  IconButton,
   Input,
   PasswordField,
   PrivacyCardOption,
-  ToggleSwitch,
-  Topbar,
 } from './ui';
 
 interface CreateRoomProps {
@@ -28,6 +26,7 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
   const [submitting, setSubmitting] = useState(false);
   const [userProfile, setUserProfile] = useState<{ age_group: string } | null>(null);
   const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomDescription, setNewRoomDescription] = useState('');
   const [newRoomKey, setNewRoomKey] = useState('');
   const [newRoomCategory, setNewRoomCategory] = useState('Geral');
   const [requirePassEveryTime, setRequirePassEveryTime] = useState(false);
@@ -115,100 +114,107 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
   }
 
   return (
-    <div className="page-shell">
-      <Topbar title="Criar sala" subtitle="Defina a camada de privacidade sem alterar o backend atual." />
+    <div className="page-shell create-page">
+      <header className="create-header">
+        <div className="create-header__inner">
+          <IconButton
+            icon={<ArrowLeft size={20} />}
+            label="Voltar para home"
+            variant="ghost"
+            className="create-header__back"
+            onClick={onNavigateHome}
+          />
+          <h1 className="create-header__title">Crie uma sala</h1>
+          <span className="create-header__spacer" aria-hidden="true" />
+        </div>
+      </header>
 
-      <main className="page-container page-stack">
-        <HeroLogoBlock
-          eyebrow="Create room"
-          title={
-            <>
-              Sala<span className="hero-logo__accent">Efêmera</span>
-            </>
-          }
-          subtitle="A navegação principal ficou em 3 itens: Home, Criar e Perfil. Não existe domínio de atividade no projeto atual, então criação tem prioridade de frequência sobre uma aba redundante."
-          meta={
-            <>
-              <Badge variant="info">BottomNav 3 itens</Badge>
-              <Badge variant={userProfile?.age_group === '+18' ? 'danger' : 'success'}>
-                {userProfile?.age_group ?? 'Livre'}
-              </Badge>
-            </>
-          }
-        />
-
-        <form className="page-stack" onSubmit={createRoom}>
-          <Card className="page-stack">
+      <main className="page-container page-stack create-main">
+        <form className="page-stack create-form" onSubmit={createRoom}>
+          <Card className="page-stack create-panel">
             <Input
-              label="Nome público"
-              icon={<PlusSquare size={18} />}
-              placeholder="Ex: Mesa segura do time"
+              aria-label="Nome da sala"
+              placeholder="Nome da sala"
               value={newRoomName}
               onChange={(event) => setNewRoomName(event.target.value)}
+              maxLength={48}
               required
             />
 
+            <Input
+              aria-label="Descricao opcional"
+              placeholder="Descrição (opcional)"
+              value={newRoomDescription}
+              onChange={(event) => setNewRoomDescription(event.target.value)}
+              maxLength={120}
+            />
+
+            <section className="section-stack section-stack--sm">
+              <h2 className="create-section-title">Privacidade</h2>
+              <div className="create-privacy-stack">
+                <PrivacyCardOption
+                  icon={KeyRound}
+                  title="Sala privada"
+                  description="Para entrar e preciso ter senha."
+                  selected={requirePassEveryTime}
+                  trailing={<span className={`mini-switch ${requirePassEveryTime ? 'mini-switch--checked' : ''}`} aria-hidden="true" />}
+                  onClick={() => setRequirePassEveryTime(true)}
+                />
+                <PrivacyCardOption
+                  icon={LockKeyhole}
+                  title="Sala publica"
+                  description="A chave fica salva nesta sessao."
+                  selected={!requirePassEveryTime}
+                  trailing={<span className={`mini-switch ${!requirePassEveryTime ? 'mini-switch--checked mini-switch--public' : ''}`} aria-hidden="true" />}
+                  onClick={() => setRequirePassEveryTime(false)}
+                />
+              </div>
+            </section>
+
+            <section className="section-stack section-stack--sm">
+              <h2 className="create-section-title">Categoria</h2>
+              <div className="create-category-row">
+                {CATEGORIES.filter((category) => category !== '+18' || userProfile?.age_group === '+18').map((category) => (
+                  <Chip
+                    key={category}
+                    selected={newRoomCategory === category}
+                    onClick={() => setNewRoomCategory(category)}
+                  >
+                    {category}
+                  </Chip>
+                ))}
+              </div>
+            </section>
+
             <PasswordField
-              label="Chave da sala"
-              placeholder="Senha secreta usada para derivar a chave"
+              label="Senha da sala"
+              placeholder="Digite a senha da sala"
               value={newRoomKey}
               onChange={(event) => setNewRoomKey(event.target.value)}
               required
             />
 
-            <label className="ui-field">
-              <span className="ui-field__label">Categoria</span>
-              <select
-                className="ui-select"
-                value={newRoomCategory}
-                onChange={(event) => setNewRoomCategory(event.target.value)}
-              >
-                {CATEGORIES.filter((category) => category !== '+18' || userProfile?.age_group === '+18').map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Card className="create-timer-card">
+              <div className="create-timer-card__body">
+                <span className="create-timer-card__icon" aria-hidden="true">
+                  <Clock3 size={20} />
+                </span>
+                <div className="section-stack section-stack--sm create-timer-card__copy">
+                  <p className="create-timer-card__title">Mensagens desaparecem</p>
+                  <p className="create-timer-card__text">em 20 minutos</p>
+                </div>
+              </div>
+              <span className="mini-switch mini-switch--checked" aria-hidden="true" />
+            </Card>
           </Card>
 
-          <div className="privacy-grid">
-            <PrivacyCardOption
-              icon={ShieldCheck}
-              title="Acesso persistente"
-              description="A chave fica salva apenas nesta sessão para permitir entrada direta em próximas visitas."
-              selected={!requirePassEveryTime}
-              badge={<Badge variant="primary">Padrão</Badge>}
-              onClick={() => setRequirePassEveryTime(false)}
-            />
-            <PrivacyCardOption
-              icon={KeyRound}
-              title="Senha a cada acesso"
-              description="Força nova autenticação com senha em toda entrada, útil para salas sensíveis ou compartilhadas."
-              selected={requirePassEveryTime}
-              badge={<Badge variant="warning">Lock</Badge>}
-              onClick={() => setRequirePassEveryTime(true)}
-            />
-            <PrivacyCardOption
-              icon={Sparkles}
-              title="Mensagens efêmeras"
-              description="O chat já nasce com retenção de 20 minutos e mídia view-once compatível."
-              selected
-              badge={<Badge variant="info">20 min</Badge>}
-            />
-            <Card className="section-stack">
-              <ToggleSwitch
-                checked={requirePassEveryTime}
-                onCheckedChange={setRequirePassEveryTime}
-                label="Exigir senha em cada acesso"
-                description="Liga o estado locked por padrão em todos os acessos futuros."
-                icon={<LockKeyhole size={18} />}
-              />
-            </Card>
-          </div>
-
-          <Button type="submit" loading={submitting} leadingIcon={!submitting ? <ShieldCheck size={18} /> : null}>
-            Criar sala e entrar
+          <Button
+            type="submit"
+            loading={submitting}
+            leadingIcon={!submitting ? <ShieldCheck size={18} /> : null}
+            className="create-submit"
+          >
+            Criar sala
           </Button>
         </form>
       </main>

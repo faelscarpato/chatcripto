@@ -5,7 +5,7 @@ import Chat from './components/Chat';
 import CreateRoom from './components/CreateRoom';
 import Profile from './components/Profile';
 import RoomList from './components/RoomList';
-import { HeroLogoBlock, TimerPill } from './components/ui';
+import { SplashScreen } from './components/ui';
 import { supabase } from './lib/supabase';
 
 type AppScreen = 'home' | 'create' | 'profile';
@@ -17,7 +17,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    Promise.all([
+      supabase.auth.getSession(),
+      new Promise((resolve) => window.setTimeout(resolve, 650)),
+    ]).then(([{ data: { session } }]) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -32,22 +35,7 @@ export default function App() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="page-shell">
-        <main className="page-container">
-          <HeroLogoBlock
-            eyebrow="Inicializando sessão"
-            title={
-              <>
-                Chat<span className="hero-logo__accent">Cripto</span>
-              </>
-            }
-            subtitle="Carregando autenticação e preparando o shell seguro antes de liberar o app."
-            meta={<TimerPill label="20 min efêmeros" />}
-          />
-        </main>
-      </div>
-    );
+    return <SplashScreen />;
   }
 
   if (!user) {

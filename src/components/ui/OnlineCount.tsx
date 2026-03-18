@@ -1,4 +1,4 @@
-import { RadioTower } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 interface OnlineCountProps {
   count: number;
@@ -8,7 +8,7 @@ interface OnlineCountProps {
 export function OnlineCount({ count, label = 'salas ativas' }: OnlineCountProps) {
   return (
     <span className="online-count">
-      <RadioTower size={14} />
+      <Users size={14} />
       <span>{count} {label}</span>
     </span>
   );

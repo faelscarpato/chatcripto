@@ -1,14 +1,22 @@
-import { ArrowRight, KeyRound, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { Card } from './Card';
+import { OnlineCount } from './OnlineCount';
+import { TimerPill } from './TimerPill';
 
 interface RoomCardProps {
   name: string;
   roomId: string;
   category: string;
   ageGroup: string;
+  summary: string;
+  featureLabel: string;
+  accessLabel: string;
+  presenceCount: number;
+  presenceLabel?: string;
+  timerLabel?: string;
   selected?: boolean;
   directAccess?: boolean;
   locked?: boolean;
@@ -21,6 +29,12 @@ export function RoomCard({
   roomId,
   category,
   ageGroup,
+  summary,
+  featureLabel,
+  accessLabel,
+  presenceCount,
+  presenceLabel = 'pessoas com acesso',
+  timerLabel = '20m',
   selected = false,
   directAccess = false,
   locked = false,
@@ -28,39 +42,60 @@ export function RoomCard({
   onRequestJoin,
 }: RoomCardProps) {
   return (
-    <Card className="room-card" interactive selected={selected}>
-      <div className="room-card__header">
-        <div className="room-card__meta">
-          <span className="hero-logo__mark" aria-hidden="true">
-            {name.slice(0, 1).toUpperCase()}
+    <Card className="room-card room-card--home" interactive selected={selected}>
+      <div className="room-card__hero">
+        <div className="room-card__identity">
+          <span className="room-card__logo" aria-hidden="true">
+            <img src="/chatcripto-logo.png" alt="" />
           </span>
-          <div className="section-stack section-stack--sm">
-            <div className="toolbar-row">
+          <div className="section-stack section-stack--sm room-card__copy">
+            <div className="toolbar-row room-card__headline">
               <h3 className="room-card__title">{name}</h3>
               <Badge variant={ageGroup === '+18' ? 'danger' : 'success'}>{ageGroup}</Badge>
-              {locked ? <Badge variant="warning">Lock</Badge> : null}
             </div>
-            <p className="room-card__description">Sala #{roomId.slice(0, 8)} • {category}</p>
+            <p className="room-card__summary">{summary}</p>
           </div>
         </div>
+        <TimerPill label={timerLabel} />
+      </div>
+
+      <div className="room-card__chips">
+        <Badge variant="muted" icon={<Eye size={12} />}>
+          {featureLabel}
+        </Badge>
+        <Badge variant={directAccess ? 'primary' : 'info'}>
+          {accessLabel}
+        </Badge>
+      </div>
+
+      <div className="room-card__footer">
+        <div className="room-card__meta-line room-card__meta-line--stacked">
+          <OnlineCount count={presenceCount} label={presenceLabel} />
+          <div className="room-card__meta-line">
+            <span className="room-card__meta-item">
+              {directAccess ? <ShieldCheck size={14} /> : <LockKeyhole size={14} />}
+              <span>{locked ? 'Entrada com senha' : 'Chave salva'}</span>
+            </span>
+            <span className="room-card__meta-item">
+              <span className="room-card__dot" />
+              <span>{category}</span>
+            </span>
+            <span className="room-card__meta-item room-card__meta-item--id">#{roomId.slice(0, 6)}</span>
+          </div>
+        </div>
+
         <Button
           variant={directAccess ? 'primary' : 'secondary'}
           size="sm"
+          className="room-card__cta"
           onClick={onRequestJoin}
-          leadingIcon={directAccess ? <ShieldCheck size={16} /> : <KeyRound size={16} />}
+          leadingIcon={directAccess ? <Users size={16} /> : undefined}
           trailingIcon={<ArrowRight size={16} />}
         >
-          {directAccess ? 'Entrar direto' : selected ? 'Confirmar chave' : 'Desbloquear'}
+          {directAccess ? 'Entrar' : selected ? 'Confirmar' : 'Abrir'}
         </Button>
       </div>
-      <div className="room-card__footer">
-        <div className="toolbar-row">
-          <Badge variant="info">{category}</Badge>
-          <Badge variant={directAccess ? 'primary' : 'muted'}>
-            {directAccess ? 'Acesso salvo' : 'Senha necessária'}
-          </Badge>
-        </div>
-      </div>
+
       {joinForm}
     </Card>
   );

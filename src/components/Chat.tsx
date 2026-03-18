@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, MoreVertical, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { base64ToUint8Array, decryptMessage, encryptData, encryptMessage } from '../lib/crypto';
 import { supabase } from '../lib/supabase';
@@ -319,26 +319,20 @@ export default function Chat({ room, onLeave }: ChatProps) {
     <div className="page-shell chat-page">
       <Topbar
         className="chat-topbar"
-        title={
-          <span className="toolbar-row">
-            <span>{room.name}</span>
-            <ShieldCheck size={16} />
-          </span>
-        }
+        title={<span>{room.name}</span>}
         subtitle={
           <span className="toolbar-row text-offline">
-            <span className="status-dot" />
-            <span>Canal protegido</span>
-            <TimerPill label="20 min ativos" />
+            <LockKeyhole size={14} />
+            <span>Sala protegida e efemera</span>
           </span>
         }
         leading={<IconButton icon={<ArrowLeft size={18} />} label="Voltar" onClick={onLeave} />}
-        trailing={<IconButton icon={<MoreVertical size={18} />} label="Opções da sala" variant="ghost" />}
+        trailing={<TimerPill label="20 min" />}
       />
 
       <main className="page-container chat-main chat-layout">
         <section className="chat-thread">
-          <Card className="content-panel chat-content-panel">
+          <div className="chat-content-panel">
             <div className="chat-scroll section-stack">
               {messages.length === 0 ? (
                 <Card className="empty-state">
@@ -361,6 +355,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
                         author={getAuthorLabel(msg.user_id)}
                         time={new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         senderVariant={getSenderVariant(msg.user_id)}
+                        showAvatar={!isSameUser}
                         content={
                           msg.is_view_once ? (
                             <ViewOnceBubble
@@ -379,7 +374,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
               )}
               <div ref={scrollRef} />
             </div>
-          </Card>
+          </div>
         </section>
 
         <aside className="chat-aside">
@@ -419,12 +414,6 @@ export default function Chat({ room, onLeave }: ChatProps) {
             sending={isSending}
             uploading={isUploading}
           />
-
-          <div className="toolbar-row text-offline chat-security-meta">
-            <Badge variant="info">AES-256-GCM</Badge>
-            <Badge variant="muted">Zero log</Badge>
-            <Badge variant="warning">Mídia efêmera</Badge>
-          </div>
         </div>
       </div>
     </div>

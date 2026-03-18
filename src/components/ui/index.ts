@@ -16,6 +16,7 @@ export * from './PrivacyCardOption';
 export * from './RoomCard';
 export * from './SearchBarPill';
 export * from './SettingsRow';
+export * from './SplashScreen';
 export * from './StatsCard';
 export * from './TimerPill';
 export * from './ToggleSwitch';

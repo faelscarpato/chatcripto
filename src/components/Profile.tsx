@@ -1,16 +1,32 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, CreditCard, Home, LogOut, MapPin, PlusSquare, Save, Trash2, UserRound } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bell,
+  CalendarDays,
+  Camera,
+  ChevronRight,
+  CreditCard,
+  Home,
+  LockKeyhole,
+  LogOut,
+  MapPin,
+  Pencil,
+  PlusSquare,
+  Save,
+  Shield,
+  Trash2,
+  UserRound,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import {
   Avatar,
-  Badge,
   BottomNav,
   Button,
   Card,
+  IconButton,
   Input,
   SettingsRow,
   StatsCard,
-  Topbar,
 } from './ui';
 
 interface ProfileData {
@@ -34,6 +50,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [email, setEmail] = useState('');
   const [accessCount, setAccessCount] = useState(0);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [formData, setFormData] = useState<Partial<ProfileData>>({});
 
   useEffect(() => {
@@ -98,6 +115,10 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
     return Boolean(value);
   }).length;
 
+  const displayName = profile?.full_name?.trim() || profile?.username || 'Usuario';
+  const usernameHandle = profile?.username ? `@${profile.username}` : '@usuario';
+  const ageDescription = profile?.age_group === '+18' ? 'Perfil adulto verificado' : 'Perfil livre';
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!profile) {
@@ -142,48 +163,95 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   }
 
   return (
-    <div className="page-shell">
-      <Topbar title="Perfil" subtitle="Gerencie identidade, acesso e preferências sensíveis." />
+    <div className="page-shell profile-page">
+      <header className="profile-header">
+        <div className="profile-header__inner">
+          <IconButton
+            icon={<ArrowLeft size={20} />}
+            label="Voltar para home"
+            variant="ghost"
+            className="profile-header__back"
+            onClick={onNavigateHome}
+          />
+          <span className="profile-header__spacer" aria-hidden="true" />
+          <Avatar fallback={displayName} size="sm" />
+        </div>
+      </header>
 
-      <main className="page-container page-stack">
-        <Card className="profile-hero">
-          <div className="toolbar-row">
-            <Avatar fallback={profile?.username ?? 'U'} size="lg" />
-            <div className="section-stack section-stack--sm">
-              <p className="eyebrow">Hero profile</p>
-              <h1 className="hero-logo__title">{profile?.username}</h1>
-              <p className="text-muted">{email}</p>
-              <div className="toolbar-row">
-                <Badge variant={profile?.age_group === '+18' ? 'danger' : 'success'}>
-                  {profile?.age_group === '+18' ? 'Maior de idade' : 'Livre'}
-                </Badge>
-                <Badge variant="info">{accessCount} salas acessadas</Badge>
-              </div>
-            </div>
+      <main className="page-container page-stack profile-main">
+        <section className="profile-hero">
+          <div className="profile-avatar-stage">
+            <div className="profile-avatar-ring" aria-hidden="true" />
+            <Avatar fallback={displayName} size="lg" />
+            <span className="profile-avatar-edit" aria-hidden="true">
+              <Camera size={18} />
+            </span>
           </div>
-        </Card>
 
-        <div className="stats-grid">
-          <StatsCard label="Completude" value={`${completionScore}/4`} description="Campos críticos preenchidos no cadastro." />
-          <StatsCard label="Acessos" value={String(accessCount)} description="Histórico de salas já destravadas pelo perfil." />
+          <div className="section-stack section-stack--sm profile-hero__copy">
+            <div className="toolbar-row profile-hero__title-row">
+              <h1 className="profile-hero__title">{displayName}</h1>
+              <Pencil size={18} className="profile-hero__edit-icon" />
+            </div>
+            <p className="profile-hero__handle">{usernameHandle}</p>
+            <p className="profile-hero__subtitle">{ageDescription}</p>
+            <p className="profile-hero__email">{email}</p>
+          </div>
+        </section>
+
+        <div className="profile-settings-stack">
+          <SettingsRow
+            title="Segurança"
+            description="Sessao protegida e acesso cifrado."
+            icon={<Shield size={18} />}
+            end={<ChevronRight size={18} />}
+          />
+          <SettingsRow
+            title="Notificações"
+            description="Avisos visuais dentro do app."
+            icon={<Bell size={18} />}
+            end={
+              <button
+                type="button"
+                className={`mini-switch ${notificationsEnabled ? 'mini-switch--checked' : ''}`}
+                aria-label="Alternar notificacoes"
+                aria-pressed={notificationsEnabled}
+                onClick={() => setNotificationsEnabled((current) => !current)}
+              />
+            }
+          />
+          <SettingsRow
+            title="Privacidade"
+            description="Mensagens efemeras e midia view-once."
+            icon={<LockKeyhole size={18} />}
+            end={<ChevronRight size={18} />}
+          />
         </div>
 
-        <Card className="section-stack">
-          <SettingsRow
-            title="Usuário"
-            description={profile?.username ?? 'Sem username'}
-            icon={<UserRound size={18} />}
-            end={<Badge variant="muted">Readonly</Badge>}
-          />
-          <SettingsRow
-            title="E-mail"
-            description={email}
-            icon={<CreditCard size={18} />}
-            end={<Badge variant="info">Auth</Badge>}
-          />
-        </Card>
+        <div className="stats-grid profile-stats-grid">
+          <StatsCard label="Completude" value={`${completionScore}/4`} description="Campos essenciais preenchidos." />
+          <StatsCard label="Acessos" value={String(accessCount)} description="Salas liberadas nesta conta." />
+        </div>
 
-        <Card>
+        <div className="profile-cta-stack">
+          <Button fullWidth leadingIcon={<LogOut size={18} />} onClick={() => void supabase.auth.signOut()}>
+            Sair
+          </Button>
+          <Button
+            variant="danger"
+            fullWidth
+            leadingIcon={<Trash2 size={18} />}
+            onClick={() => alert('A exclusão de conta depende de um endpoint administrativo não presente no projeto atual.')}
+          >
+            Deletar conta
+          </Button>
+        </div>
+
+        <Card className="section-stack profile-edit-card">
+          <div className="section-stack section-stack--sm">
+            <p className="eyebrow">Dados da conta</p>
+            <h2 className="topbar__title">Editar perfil</h2>
+          </div>
           <form className="page-stack" onSubmit={handleSubmit}>
             <Input
               label="Nome completo"
@@ -221,28 +289,6 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
               Salvar alterações
             </Button>
           </form>
-        </Card>
-
-        <Card tone="danger" className="section-stack">
-          <div className="section-stack section-stack--sm">
-            <p className="eyebrow">Danger zone</p>
-            <h3 className="topbar__title">Ações críticas</h3>
-            <p className="text-muted">
-              O backend atual já suporta logout. Exclusão de conta ainda exige endpoint administrativo seguro.
-            </p>
-          </div>
-          <div className="toolbar-row">
-            <Button variant="secondary" leadingIcon={<LogOut size={18} />} onClick={() => void supabase.auth.signOut()}>
-              Sair agora
-            </Button>
-            <Button
-              variant="danger"
-              leadingIcon={<Trash2 size={18} />}
-              onClick={() => alert('A exclusão de conta depende de um endpoint administrativo não presente no projeto atual.')}
-            >
-              Deletar conta
-            </Button>
-          </div>
         </Card>
       </main>
 
