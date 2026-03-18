@@ -89,16 +89,35 @@ export default function RoomList({
     } = await supabase.auth.getUser();
 
     if (user) {
+      const authAvatar = typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '';
       const { data } = await supabase
         .from('profiles')
-        .select('age_group, full_name, username')
+        .select('age_group, full_name, username, avatar_url')
         .eq('id', user.id)
         .single();
 
       if (data) {
+        const profileAvatar = typeof data.avatar_url === 'string' ? data.avatar_url : '';
+        const hasOversizedAuthAvatar = authAvatar.startsWith('data:image/');
+        const nextAvatar = profileAvatar || authAvatar;
+
+        if (hasOversizedAuthAvatar) {
+          await Promise.allSettled([
+            profileAvatar
+              ? Promise.resolve()
+              : supabase.from('profiles').update({ avatar_url: authAvatar }).eq('id', user.id),
+            supabase.auth.updateUser({
+              data: {
+                avatar_url: '',
+              },
+            }),
+          ]);
+          await supabase.auth.refreshSession();
+        }
+
         setUserProfile({
           ...data,
-          avatar_url: typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '',
+          avatar_url: nextAvatar,
         });
       }
     }

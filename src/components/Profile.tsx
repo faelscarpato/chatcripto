@@ -32,6 +32,7 @@ import {
 interface ProfileData {
   id: string;
   username: string;
+  avatar_url: string | null;
   full_name: string | null;
   cpf: string | null;
   birth_date: string | null;
@@ -52,7 +53,6 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   const [accessCount, setAccessCount] = useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [formData, setFormData] = useState<Partial<ProfileData>>({});
-  const [avatarSrc, setAvatarSrc] = useState<string>('');
   const [pendingAvatarSrc, setPendingAvatarSrc] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,8 +104,6 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
 
       setEmail(user.email ?? '');
       const authAvatar = typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '';
-      setAvatarSrc(authAvatar);
-      setPendingAvatarSrc(authAvatar);
 
       const [{ data, error }, { count }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
@@ -116,6 +114,24 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         throw error;
       }
 
+      const profileAvatar = typeof data.avatar_url === 'string' ? data.avatar_url : '';
+      const hasOversizedAuthAvatar = authAvatar.startsWith('data:image/');
+      const nextAvatar = profileAvatar || authAvatar;
+
+      if (hasOversizedAuthAvatar) {
+        await Promise.allSettled([
+          profileAvatar
+            ? Promise.resolve()
+            : supabase.from('profiles').update({ avatar_url: authAvatar }).eq('id', user.id),
+          supabase.auth.updateUser({
+            data: {
+              avatar_url: '',
+            },
+          }),
+        ]);
+        await supabase.auth.refreshSession();
+      }
+
       setAccessCount(count ?? 0);
       setProfile(data);
       setFormData({
@@ -124,6 +140,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         birth_date: data.birth_date || '',
         address: data.address || '',
       });
+      setPendingAvatarSrc(nextAvatar);
     } catch (error: any) {
       alert('Erro ao carregar perfil: ' + error.message);
     } finally {
@@ -173,29 +190,16 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         birth_date: formData.birth_date || '',
         address: formData.address || '',
         age_group,
+        avatar_url: pendingAvatarSrc || null,
       };
 
-      const [{ error: profileError }, authResult] = await Promise.all([
-        supabase.from('profiles').update(updates).eq('id', profile.id),
-        pendingAvatarSrc !== avatarSrc
-          ? supabase.auth.updateUser({
-              data: {
-                avatar_url: pendingAvatarSrc,
-              },
-            })
-          : Promise.resolve({ error: null }),
-      ]);
+      const { error: profileError } = await supabase.from('profiles').update(updates).eq('id', profile.id);
 
       if (profileError) {
         throw profileError;
       }
 
-      if (authResult.error) {
-        throw authResult.error;
-      }
-
       setProfile({ ...profile, ...updates } as ProfileData);
-      setAvatarSrc(pendingAvatarSrc);
       alert('Perfil atualizado com sucesso!');
     } catch (error: any) {
       alert('Erro ao atualizar perfil: ' + error.message);

@@ -26,6 +26,7 @@ interface Message {
   iv: string;
   is_view_once?: boolean;
   media_id?: string;
+  media_type?: string;
   created_at: string;
   decrypted_content?: string;
 }
@@ -59,6 +60,76 @@ function getChatDividerLabel() {
     day: '2-digit',
     month: 'short',
   }).format(new Date());
+}
+
+function detectImageMimeType(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+
+  if (
+    bytes.length >= 6 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38
+  ) {
+    return 'image/gif';
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    return 'image/bmp';
+  }
+
+  return null;
+}
+
+function formatMediaUploadError(error: { message?: string; statusCode?: string | number } | null | undefined) {
+  const message = error?.message?.trim() || 'Falha desconhecida no upload da mídia.';
+  const normalized = message.toLowerCase();
+  const statusCode = `${error?.statusCode ?? ''}`;
+
+  if (
+    statusCode === '400' ||
+    normalized.includes('bucket') ||
+    normalized.includes('storage') ||
+    normalized.includes('mime') ||
+    normalized.includes('row-level security')
+  ) {
+    return `${message} Verifique se o bucket "ephemeral-media" e as policies de storage foram aplicados no Supabase.`;
+  }
+
+  return message;
 }
 
 export default function Chat({ room, onLeave }: ChatProps) {
@@ -254,10 +325,18 @@ export default function Chat({ room, onLeave }: ChatProps) {
     setIsUploading(true);
     const mediaId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
+    const mediaPath = `${room.id}/${mediaId}`;
+    let uploadSucceeded = false;
 
     try {
       const buffer = await file.arrayBuffer();
       const { encrypted, iv } = await encryptData(buffer, room.key);
+      const encryptedBytes = base64ToUint8Array(encrypted);
+      const encryptedPayload = new Uint8Array(encryptedBytes.byteLength);
+      encryptedPayload.set(encryptedBytes);
+      const encryptedBlob = new Blob([encryptedPayload.buffer], {
+        type: 'application/octet-stream',
+      });
 
       const optimisticMediaMsg: Message = {
         id: messageId,
@@ -267,20 +346,22 @@ export default function Chat({ room, onLeave }: ChatProps) {
         iv,
         is_view_once: true,
         media_id: mediaId,
+        media_type: file.type,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => pruneExpiredMessages([...prev, optimisticMediaMsg]));
 
       const { error: uploadError } = await supabase.storage
         .from('ephemeral-media')
-        .upload(`${room.id}/${mediaId}`, base64ToUint8Array(encrypted), {
+        .upload(mediaPath, encryptedBlob, {
           contentType: 'application/octet-stream',
-          upsert: true,
+          upsert: false,
         });
 
       if (uploadError) {
-        throw uploadError;
+        throw new Error(formatMediaUploadError(uploadError));
       }
+      uploadSucceeded = true;
 
       const { error: msgError } = await supabase.from('messages').insert([
         {
@@ -291,6 +372,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
           iv,
           is_view_once: true,
           media_id: mediaId,
+          media_type: file.type,
         },
       ]);
 
@@ -298,6 +380,9 @@ export default function Chat({ room, onLeave }: ChatProps) {
         throw msgError;
       }
     } catch (error: any) {
+      if (uploadSucceeded) {
+        await supabase.storage.from('ephemeral-media').remove([mediaPath]);
+      }
       setMessages((prev) => prev.filter((message) => message.id !== messageId && message.media_id !== mediaId));
       alert('Erro ao enviar mídia: ' + error.message);
     } finally {
@@ -333,12 +418,12 @@ export default function Chat({ room, onLeave }: ChatProps) {
       encryptedBuffer as any,
     );
 
-    return URL.createObjectURL(new Blob([decryptedBuffer]));
+    const mediaType = message.media_type || detectImageMimeType(decryptedBuffer) || 'application/octet-stream';
+    return URL.createObjectURL(new Blob([decryptedBuffer], { type: mediaType }));
   };
 
   const handleMediaViewed = async (mediaId: string) => {
     await supabase.storage.from('ephemeral-media').remove([`${room.id}/${mediaId}`]);
-
     setMessages((prev) => prev.filter((message) => message.media_id !== mediaId));
     await supabase.from('messages').delete().eq('media_id', mediaId);
   };

@@ -35,6 +35,12 @@ ALTER TABLE public.rooms ALTER COLUMN age_group SET NOT NULL;
 
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_view_once BOOLEAN DEFAULT false;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_type TEXT;
+
+-- 2.1 Storage para midias efemeras
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('ephemeral-media', 'ephemeral-media', false)
+ON CONFLICT (id) DO NOTHING;
 
 -- 3. Habilitar RLS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -80,6 +86,47 @@ WITH CHECK (
   EXISTS (
     SELECT 1 FROM public.rooms r
     WHERE r.id = room_id
+  )
+);
+
+DROP POLICY IF EXISTS "Authenticated users can delete view-once messages" ON public.messages;
+CREATE POLICY "Authenticated users can delete view-once messages" ON public.messages FOR DELETE
+USING (
+  is_view_once = true AND
+  EXISTS (
+    SELECT 1 FROM public.rooms r
+    WHERE r.id = room_id
+  )
+);
+
+-- 6.1 Politicas do Storage
+DROP POLICY IF EXISTS "Authenticated users can upload ephemeral media" ON storage.objects;
+CREATE POLICY "Authenticated users can upload ephemeral media" ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (
+  bucket_id = 'ephemeral-media' AND
+  EXISTS (
+    SELECT 1 FROM public.rooms r
+    WHERE r.id::text = split_part(name, '/', 1)
+  )
+);
+
+DROP POLICY IF EXISTS "Authenticated users can read ephemeral media" ON storage.objects;
+CREATE POLICY "Authenticated users can read ephemeral media" ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id = 'ephemeral-media' AND
+  EXISTS (
+    SELECT 1 FROM public.rooms r
+    WHERE r.id::text = split_part(name, '/', 1)
+  )
+);
+
+DROP POLICY IF EXISTS "Authenticated users can delete ephemeral media" ON storage.objects;
+CREATE POLICY "Authenticated users can delete ephemeral media" ON storage.objects FOR DELETE TO authenticated
+USING (
+  bucket_id = 'ephemeral-media' AND
+  EXISTS (
+    SELECT 1 FROM public.rooms r
+    WHERE r.id::text = split_part(name, '/', 1)
   )
 );
 
