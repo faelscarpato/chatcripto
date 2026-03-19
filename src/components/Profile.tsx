@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Bell,
   CalendarDays,
-  Camera,
   ChevronRight,
   CreditCard,
   Home,
@@ -17,6 +16,7 @@ import {
   Trash2,
   UserRound,
 } from 'lucide-react';
+import { DEFAULT_PROFILE_EMOJI, PROFILE_EMOJI_OPTIONS, normalizeProfileEmoji } from '../lib/profileEmoji';
 import { supabase } from '../lib/supabase';
 import {
   Avatar,
@@ -32,7 +32,7 @@ import {
 interface ProfileData {
   id: string;
   username: string;
-  avatar_url: string | null;
+  profile_emoji: string;
   full_name: string | null;
   cpf: string | null;
   birth_date: string | null;
@@ -53,44 +53,11 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   const [accessCount, setAccessCount] = useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [formData, setFormData] = useState<Partial<ProfileData>>({});
-  const [pendingAvatarSrc, setPendingAvatarSrc] = useState<string>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingEmoji, setPendingEmoji] = useState(DEFAULT_PROFILE_EMOJI);
 
   useEffect(() => {
     void fetchProfile();
   }, []);
-
-  const buildAvatarDataUrl = async (file: File) => {
-    const imageUrl = URL.createObjectURL(file);
-
-    try {
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const nextImage = new Image();
-        nextImage.onload = () => resolve(nextImage);
-        nextImage.onerror = () => reject(new Error('Nao foi possivel carregar a imagem.'));
-        nextImage.src = imageUrl;
-      });
-
-      const size = 256;
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-
-      const context = canvas.getContext('2d');
-      if (!context) {
-        throw new Error('Nao foi possivel preparar a imagem.');
-      }
-
-      const sourceSize = Math.min(image.width, image.height);
-      const sourceX = (image.width - sourceSize) / 2;
-      const sourceY = (image.height - sourceSize) / 2;
-
-      context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
-      return canvas.toDataURL('image/jpeg', 0.82);
-    } finally {
-      URL.revokeObjectURL(imageUrl);
-    }
-  };
 
   const fetchProfile = async () => {
     try {
@@ -103,7 +70,6 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
       }
 
       setEmail(user.email ?? '');
-      const authAvatar = typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '';
 
       const [{ data, error }, { count }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
@@ -114,33 +80,15 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         throw error;
       }
 
-      const profileAvatar = typeof data.avatar_url === 'string' ? data.avatar_url : '';
-      const hasOversizedAuthAvatar = authAvatar.startsWith('data:image/');
-      const nextAvatar = profileAvatar || authAvatar;
-
-      if (hasOversizedAuthAvatar) {
-        await Promise.allSettled([
-          profileAvatar
-            ? Promise.resolve()
-            : supabase.from('profiles').update({ avatar_url: authAvatar }).eq('id', user.id),
-          supabase.auth.updateUser({
-            data: {
-              avatar_url: '',
-            },
-          }),
-        ]);
-        await supabase.auth.refreshSession();
-      }
-
       setAccessCount(count ?? 0);
-      setProfile(data);
+      setProfile({ ...data, profile_emoji: normalizeProfileEmoji(data.profile_emoji) });
       setFormData({
         full_name: data.full_name || '',
         cpf: data.cpf || '',
         birth_date: data.birth_date || '',
         address: data.address || '',
       });
-      setPendingAvatarSrc(nextAvatar);
+      setPendingEmoji(normalizeProfileEmoji(data.profile_emoji));
     } catch (error: any) {
       alert('Erro ao carregar perfil: ' + error.message);
     } finally {
@@ -190,7 +138,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         birth_date: formData.birth_date || '',
         address: formData.address || '',
         age_group,
-        avatar_url: pendingAvatarSrc || null,
+        profile_emoji: normalizeProfileEmoji(pendingEmoji),
       };
 
       const { error: profileError } = await supabase.from('profiles').update(updates).eq('id', profile.id);
@@ -205,28 +153,6 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
       alert('Erro ao atualizar perfil: ' + error.message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleAvatarSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert('A foto deve ter no maximo 5MB.');
-      event.target.value = '';
-      return;
-    }
-
-    try {
-      const nextAvatar = await buildAvatarDataUrl(file);
-      setPendingAvatarSrc(nextAvatar);
-    } catch (error: any) {
-      alert('Erro ao preparar a foto: ' + error.message);
-    } finally {
-      event.target.value = '';
     }
   };
 
@@ -255,7 +181,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
             onClick={onNavigateHome}
           />
           <span className="profile-header__spacer" aria-hidden="true" />
-          <Avatar fallback={displayName} size="sm" src={pendingAvatarSrc || undefined} />
+          <Avatar fallback={displayName} size="sm" emoji={pendingEmoji} />
         </div>
       </header>
 
@@ -263,22 +189,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         <section className="profile-hero">
           <div className="profile-avatar-stage">
             <div className="profile-avatar-ring" aria-hidden="true" />
-            <Avatar fallback={displayName} size="lg" src={pendingAvatarSrc || undefined} />
-            <button
-              type="button"
-              className="profile-avatar-edit"
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Selecionar foto de perfil"
-            >
-              <Camera size={18} />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleAvatarSelect}
-            />
+            <Avatar fallback={displayName} size="lg" emoji={pendingEmoji} />
           </div>
 
           <div className="section-stack section-stack--sm profile-hero__copy">
@@ -346,6 +257,26 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
             <h2 className="topbar__title">Editar perfil</h2>
           </div>
           <form className="page-stack" onSubmit={handleSubmit}>
+            <div className="section-stack section-stack--sm">
+              <span className="ui-field__label">Emoji do perfil</span>
+              <div className="profile-emoji-grid" role="list" aria-label="Selecionar emoji do perfil">
+                {PROFILE_EMOJI_OPTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className={`profile-emoji-option ${pendingEmoji === emoji ? 'profile-emoji-option--active' : ''}`}
+                    onClick={() => setPendingEmoji(emoji)}
+                    aria-pressed={pendingEmoji === emoji}
+                  >
+                    <span aria-hidden="true">{emoji}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-muted profile-emoji-hint">
+                Use um emoji leve como identidade visual. Fotos podem ser enviadas apenas dentro do chat.
+              </p>
+            </div>
+
             <Input
               label="Nome completo"
               placeholder="Seu nome real"

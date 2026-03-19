@@ -9,10 +9,13 @@ interface AvatarProps {
   src?: string;
   alt?: string;
   icon?: ReactNode;
+  emoji?: string;
 }
 
-export function Avatar({ fallback, size = 'md', src, alt, icon }: AvatarProps) {
-  const content = src ? <img src={src} alt={alt ?? fallback} /> : icon ?? fallback.slice(0, 1).toUpperCase();
+export function Avatar({ fallback, size = 'md', src, alt, icon, emoji }: AvatarProps) {
+  const content = src
+    ? <img src={src} alt={alt ?? fallback} />
+    : emoji || icon || fallback.slice(0, 1).toUpperCase();
 
   return <span className={cn('ui-avatar', `ui-avatar--${size}`)}>{content}</span>;
 }

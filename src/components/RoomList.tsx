@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Home, PlusSquare, SlidersHorizontal, UserRound } from 'lucide-react';
 import { deriveKey, getSalt } from '../lib/crypto';
+import { DEFAULT_PROFILE_EMOJI, normalizeProfileEmoji } from '../lib/profileEmoji';
 import { shareRoomInvite } from '../lib/share';
 import { supabase } from '../lib/supabase';
 import {
@@ -53,7 +54,7 @@ export default function RoomList({
   onInviteHandled,
 }: RoomListProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null; username: string; avatar_url?: string } | null>(null);
+  const [userProfile, setUserProfile] = useState<{ age_group: string; full_name: string | null; username: string; profile_emoji: string } | null>(null);
   const [userAccess, setUserAccess] = useState<string[]>([]);
   const [accessReady, setAccessReady] = useState(false);
   const [roomMemberCounts, setRoomMemberCounts] = useState<Record<string, number>>({});
@@ -89,35 +90,16 @@ export default function RoomList({
     } = await supabase.auth.getUser();
 
     if (user) {
-      const authAvatar = typeof user.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : '';
       const { data } = await supabase
         .from('profiles')
-        .select('age_group, full_name, username, avatar_url')
+        .select('age_group, full_name, username, profile_emoji')
         .eq('id', user.id)
         .single();
 
       if (data) {
-        const profileAvatar = typeof data.avatar_url === 'string' ? data.avatar_url : '';
-        const hasOversizedAuthAvatar = authAvatar.startsWith('data:image/');
-        const nextAvatar = profileAvatar || authAvatar;
-
-        if (hasOversizedAuthAvatar) {
-          await Promise.allSettled([
-            profileAvatar
-              ? Promise.resolve()
-              : supabase.from('profiles').update({ avatar_url: authAvatar }).eq('id', user.id),
-            supabase.auth.updateUser({
-              data: {
-                avatar_url: '',
-              },
-            }),
-          ]);
-          await supabase.auth.refreshSession();
-        }
-
         setUserProfile({
           ...data,
-          avatar_url: nextAvatar,
+          profile_emoji: normalizeProfileEmoji(data.profile_emoji),
         });
       }
     }
@@ -263,7 +245,11 @@ export default function RoomList({
 
             <div className="home-greeting__actions">
               <button type="button" className="home-avatar-button" onClick={onOpenProfile} aria-label="Abrir perfil">
-                <Avatar fallback={greetingName} size="md" src={userProfile?.avatar_url || undefined} />
+                <Avatar
+                  fallback={greetingName}
+                  size="md"
+                  emoji={userProfile?.profile_emoji || DEFAULT_PROFILE_EMOJI}
+                />
               </button>
             </div>
           </div>

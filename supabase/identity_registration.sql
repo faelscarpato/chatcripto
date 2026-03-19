@@ -17,6 +17,7 @@ BEGIN
     id, 
     username, 
     avatar_url, 
+    profile_emoji,
     age_group, 
     full_name, 
     cpf, 
@@ -27,6 +28,7 @@ BEGIN
     new.id, 
     split_part(new.email, '@', 1), 
     '', 
+    COALESCE(new.raw_user_meta_data->>'profile_emoji', '🙂'),
     COALESCE(new.raw_user_meta_data->>'age_group', 'Livre'),
     new.raw_user_meta_data->>'full_name',
     new.raw_user_meta_data->>'cpf',
@@ -34,6 +36,7 @@ BEGIN
     new.raw_user_meta_data->>'address'
   )
   ON CONFLICT (id) DO UPDATE SET
+    profile_emoji = EXCLUDED.profile_emoji,
     age_group = EXCLUDED.age_group,
     full_name = EXCLUDED.full_name,
     cpf = EXCLUDED.cpf,

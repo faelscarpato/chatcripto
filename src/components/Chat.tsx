@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Link2, LockKeyhole, Share2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { base64ToUint8Array, decryptMessage, encryptData, encryptMessage } from '../lib/crypto';
+import { DEFAULT_PROFILE_EMOJI, normalizeProfileEmoji } from '../lib/profileEmoji';
 import { buildRoomInviteUrl, copyRoomInvite, shareRoomInvite } from '../lib/share';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { ViewOnceBubble } from './ViewOnceBubble';
@@ -163,7 +164,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [user, setUser] = useState<any>(null);
-  const [usernames, setUsernames] = useState<Record<string, string>>({});
+  const [profiles, setProfiles] = useState<Record<string, { username: string; profile_emoji: string }>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSending, setIsSending] = useState(false);
@@ -267,20 +268,23 @@ export default function Chat({ room, onLeave }: ChatProps) {
   };
 
   const fetchUsernames = async (userIds: string[]) => {
-    const uniqueMissingIds = [...new Set(userIds)].filter((id) => id && !usernames[id]);
+    const uniqueMissingIds = [...new Set(userIds)].filter((id) => id && !profiles[id]);
     if (uniqueMissingIds.length === 0) {
       return;
     }
 
-    const { data } = await supabase.from('profiles').select('id, username').in('id', uniqueMissingIds);
+    const { data } = await supabase.from('profiles').select('id, username, profile_emoji').in('id', uniqueMissingIds);
     if (!data) {
       return;
     }
 
-    setUsernames((prev) => {
+    setProfiles((prev) => {
       const next = { ...prev };
       for (const profile of data) {
-        next[profile.id] = profile.username;
+        next[profile.id] = {
+          username: profile.username,
+          profile_emoji: normalizeProfileEmoji(profile.profile_emoji),
+        };
       }
       return next;
     });
@@ -291,7 +295,15 @@ export default function Chat({ room, onLeave }: ChatProps) {
       return 'Voce';
     }
 
-    return usernames[messageUserId] ?? `Membro ${messageUserId.slice(0, 4)}`;
+    return profiles[messageUserId]?.username ?? `Membro ${messageUserId.slice(0, 4)}`;
+  };
+
+  const getAuthorEmoji = (messageUserId: string) => {
+    if (messageUserId === user?.id) {
+      return profiles[messageUserId]?.profile_emoji ?? DEFAULT_PROFILE_EMOJI;
+    }
+
+    return profiles[messageUserId]?.profile_emoji ?? DEFAULT_PROFILE_EMOJI;
   };
 
   const sendMessage = async (event: React.FormEvent) => {
@@ -561,6 +573,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
                         <MessageBubble
                           own={isMe}
                           author={getAuthorLabel(msg.user_id)}
+                          avatarEmoji={getAuthorEmoji(msg.user_id)}
                           time={new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           senderVariant={getSenderVariant(msg.user_id)}
                           showAvatar={!isSameUser}

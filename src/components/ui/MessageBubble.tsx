@@ -9,6 +9,7 @@ interface MessageBubbleProps {
   content: ReactNode;
   senderVariant: number;
   showAvatar?: boolean;
+  avatarEmoji?: string;
 }
 
 export function MessageBubble({
@@ -18,6 +19,7 @@ export function MessageBubble({
   content,
   senderVariant,
   showAvatar = true,
+  avatarEmoji,
 }: MessageBubbleProps) {
   return (
     <div className="message-stack" data-own={own}>
@@ -25,7 +27,7 @@ export function MessageBubble({
         <div className="message-bubble__body">
           {showAvatar ? (
             <span className="message-bubble__avatar">
-              <Avatar fallback={author} size="sm" />
+              <Avatar fallback={author} size="sm" emoji={avatarEmoji} />
             </span>
           ) : (
             <span className="message-bubble__avatar-spacer" aria-hidden="true" />
