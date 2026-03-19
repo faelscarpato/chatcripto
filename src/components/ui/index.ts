@@ -13,6 +13,7 @@ export * from './MessageBubble';
 export * from './OnlineCount';
 export * from './PasswordField';
 export * from './PrivacyCardOption';
+export * from './RadioCard';
 export * from './RoomCard';
 export * from './SearchBarPill';
 export * from './SettingsRow';

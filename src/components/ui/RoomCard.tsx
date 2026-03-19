@@ -89,7 +89,7 @@ export function RoomCard({
         <div className="room-card__actions">
           {onShare ? (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               className="room-card__share"
               onClick={onShare}
@@ -99,7 +99,7 @@ export function RoomCard({
             </Button>
           ) : null}
           <Button
-            variant="ghost"
+            variant="primary"
             size="sm"
             className="room-card__cta"
             onClick={onRequestJoin}

@@ -10,7 +10,7 @@ import {
   IconButton,
   Input,
   PasswordField,
-  PrivacyCardOption,
+  RadioCard,
 } from './ui';
 
 interface CreateRoomProps {
@@ -156,21 +156,19 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
 
             <section className="section-stack section-stack--sm">
               <h2 className="create-section-title">Privacidade</h2>
-              <div className="create-privacy-stack">
-                <PrivacyCardOption
+              <div className="create-privacy-stack" role="radiogroup" aria-label="Tipo de sala">
+                <RadioCard
                   icon={KeyRound}
                   title="Sala privada"
-                  description="Para entrar e preciso ter senha."
-                  selected={requirePassEveryTime}
-                  trailing={<span className={`mini-switch ${requirePassEveryTime ? 'mini-switch--checked' : ''}`} aria-hidden="true" />}
+                  description="Sempre exige senha para entrar novamente."
+                  checked={requirePassEveryTime}
                   onClick={() => setRequirePassEveryTime(true)}
                 />
-                <PrivacyCardOption
+                <RadioCard
                   icon={LockKeyhole}
-                  title="Sala publica"
-                  description="A chave fica salva nesta sessao."
-                  selected={!requirePassEveryTime}
-                  trailing={<span className={`mini-switch ${!requirePassEveryTime ? 'mini-switch--checked mini-switch--public' : ''}`} aria-hidden="true" />}
+                  title="Sala pública"
+                  description="A chave fica salva apenas nesta sessão."
+                  checked={!requirePassEveryTime}
                   onClick={() => setRequirePassEveryTime(false)}
                 />
               </div>
