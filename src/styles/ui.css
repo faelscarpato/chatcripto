@@ -1,5 +1,6 @@
 .page-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -7,6 +8,7 @@
 
 .page-container {
   width: min(100%, var(--content-width));
+  min-width: 0;
   margin: 0 auto;
   padding: var(--space-3) var(--space-2) calc(var(--size-nav-h) + var(--space-3));
 }
@@ -579,6 +581,10 @@
   min-width: 0;
   display: grid;
   gap: 0.25rem;
+}
+
+.topbar__slot {
+  min-width: 0;
 }
 
 .topbar__title {
@@ -1183,13 +1189,16 @@
 }
 
 .composer {
-  gap: 0.75rem;
-  padding: 0.5rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-soft);
-  background: var(--surface-composer);
-  box-shadow: var(--shadow-sm);
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.625rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  align-items: end;
   transition:
     transform var(--duration-fast) var(--ease-standard),
     border-color var(--duration-med) var(--ease-standard),
@@ -1197,32 +1206,70 @@
 }
 
 .composer:focus-within {
-  border-color: var(--color-info-strong);
   transform: translateY(-1px);
-  box-shadow: var(--glow-cyan);
 }
 
 .composer__field {
-  flex: 1;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.25rem;
+  min-width: 0;
+  width: 100%;
   min-height: 3.625rem;
-  display: flex;
-  align-items: flex-end;
-  gap: 0.75rem;
-  padding: 0.25rem 0.9rem 0.25rem 0.35rem;
-  border-radius: var(--radius-pill);
-  background: var(--surface-composer-field);
+  padding: 0.3rem 0.45rem;
+  border-radius: 1.75rem;
+  border: 1px solid var(--color-border-soft);
+  background: var(--surface-composer);
+  box-shadow: var(--shadow-sm), var(--shadow-inset-soft);
+}
+
+.composer:focus-within .composer__field {
+  border-color: var(--color-info-strong);
+  box-shadow: var(--shadow-sm), var(--glow-cyan);
+}
+
+.composer__attach-button {
+  width: 2.65rem;
+  min-width: 2.65rem;
+  height: 2.65rem;
+  border: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-muted);
+  transition:
+    color var(--duration-med) var(--ease-standard),
+    background-color var(--duration-med) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.composer__attach-button:hover:not(:disabled) {
+  color: var(--color-info);
+  background: var(--surface-overlay-soft);
+}
+
+.composer__attach-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.composer__attach-button:disabled {
+  opacity: 0.55;
 }
 
 .composer__textarea {
-  flex: 1;
-  min-height: 48px;
-  max-height: 160px;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 120px;
   border: 0;
   background: transparent;
   color: var(--color-text);
   resize: none;
-  line-height: 1.45;
-  padding-block: 0.75rem;
+  line-height: 1.35;
+  padding: 0.78rem 0.35rem 0.72rem 0.15rem;
   scrollbar-width: thin;
 }
 
@@ -1233,22 +1280,22 @@
 .composer__timer {
   display: inline-flex;
   align-items: center;
-  min-height: 2rem;
-  padding: 0 0.85rem;
+  align-self: center;
+  min-height: 1.9rem;
+  padding: 0 0.7rem;
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-timer-border);
-  background: var(--color-timer-bg);
+  background: rgba(255, 201, 74, 0.1);
   color: var(--color-timer-text);
-  font-size: var(--font-size-sm);
+  font-size: 0.72rem;
   font-weight: var(--font-weight-bold);
   white-space: nowrap;
 }
 
-.composer__media-button,
 .composer__send-button {
-  width: 3rem;
-  min-width: 3rem;
-  height: 3rem;
+  width: 3.25rem;
+  min-width: 3.25rem;
+  height: 3.25rem;
   border-radius: 50%;
 }
 
@@ -1938,14 +1985,17 @@
   display: grid;
   gap: 1rem;
   min-height: 0;
+  min-width: 0;
 }
 
 .chat-thread {
   min-height: 0;
+  min-width: 0;
 }
 
 .chat-scroll {
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   height: 100%;
   padding-right: 0.25rem;
@@ -1958,7 +2008,10 @@
 }
 
 .chat-page {
+  min-height: 100vh;
+  min-height: 100dvh;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -1970,6 +2023,8 @@
 
 .chat-main {
   flex: 1;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   padding-top: calc(var(--size-topbar-h) + var(--space-2));
@@ -1981,6 +2036,7 @@
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   padding: 0.5rem 0 0;
 }
@@ -2010,7 +2066,11 @@
   position: fixed;
   inset: auto 0 0;
   z-index: 45;
-  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  padding:
+    0.75rem
+    max(0.75rem, env(safe-area-inset-right))
+    calc(0.75rem + env(safe-area-inset-bottom))
+    max(0.75rem, env(safe-area-inset-left));
   background: var(--gradient-bottom-nav);
 }
 
@@ -2019,6 +2079,7 @@
   margin: 0 auto;
   display: grid;
   gap: 0.625rem;
+  min-width: 0;
 }
 
 .chat-security-meta {
@@ -2152,6 +2213,80 @@
 
 .desktop-hide {
   display: inline-flex;
+}
+
+@media (max-width: 26.874rem) {
+  .chat-topbar .topbar__inner {
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.875rem 0.875rem 0.75rem;
+  }
+
+  .chat-topbar .topbar__slot {
+    gap: 0.5rem;
+  }
+
+  .chat-topbar .topbar__title {
+    font-size: 1rem;
+    line-height: 1.2;
+  }
+
+  .chat-topbar .topbar__subtitle {
+    font-size: 0.75rem;
+  }
+
+  .chat-topbar__actions {
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .chat-main {
+    padding-top: calc(var(--size-topbar-h) + 0.5rem);
+    padding-bottom: calc(var(--size-chat-composer-h) + 1rem + env(safe-area-inset-bottom));
+  }
+
+  .chat-content-panel {
+    padding-top: 0.25rem;
+  }
+
+  .chat-composer-bar {
+    padding-top: 0.4rem;
+  }
+
+  .composer {
+    gap: 0.5rem;
+  }
+
+  .composer__field {
+    min-height: 3.35rem;
+    padding: 0.25rem 0.35rem;
+    border-radius: 1.55rem;
+  }
+
+  .composer__textarea {
+    min-height: 42px;
+    max-height: 104px;
+    padding: 0.7rem 0.25rem 0.65rem 0.1rem;
+    font-size: 16px;
+  }
+
+  .composer__timer {
+    min-height: 1.75rem;
+    padding-inline: 0.6rem;
+    font-size: 0.68rem;
+  }
+
+  .composer__attach-button,
+  .composer__send-button {
+    width: 2.875rem;
+    min-width: 2.875rem;
+    height: 2.875rem;
+  }
+
+  .invite-modal__header,
+  .invite-modal__actions {
+    align-items: stretch;
+  }
 }
 
 @media (min-width: 26.875rem) {

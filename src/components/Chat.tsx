@@ -3,7 +3,7 @@ import { ArrowLeft, Copy, Link2, LockKeyhole, Share2, ShieldCheck, Sparkles, X }
 import { cn } from '../lib/cn';
 import { base64ToUint8Array, decryptMessage, encryptData, encryptMessage } from '../lib/crypto';
 import { buildRoomInviteUrl, copyRoomInvite, shareRoomInvite } from '../lib/share';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { ViewOnceBubble } from './ViewOnceBubble';
 import {
   Badge,
@@ -130,6 +130,33 @@ function formatMediaUploadError(error: { message?: string; statusCode?: string |
   }
 
   return message;
+}
+
+async function uploadEncryptedMedia(path: string, payload: Blob) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('Sessao expirada. Entre novamente para enviar fotos.');
+  }
+
+  const response = await fetch(`${supabaseUrl}/storage/v1/object/ephemeral-media/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/octet-stream',
+      'x-upsert': 'false',
+    },
+    body: payload,
+  });
+
+  if (!response.ok) {
+    const responseText = (await response.text()).trim();
+    const details = responseText || `HTTP ${response.status}`;
+    throw new Error(`HTTP ${response.status}: ${details}`);
+  }
 }
 
 export default function Chat({ room, onLeave }: ChatProps) {
@@ -351,16 +378,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
       };
       setMessages((prev) => pruneExpiredMessages([...prev, optimisticMediaMsg]));
 
-      const { error: uploadError } = await supabase.storage
-        .from('ephemeral-media')
-        .upload(mediaPath, encryptedBlob, {
-          contentType: 'application/octet-stream',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        throw new Error(formatMediaUploadError(uploadError));
-      }
+      await uploadEncryptedMedia(mediaPath, encryptedBlob);
       uploadSucceeded = true;
 
       const { error: msgError } = await supabase.from('messages').insert([
@@ -384,7 +402,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
         await supabase.storage.from('ephemeral-media').remove([mediaPath]);
       }
       setMessages((prev) => prev.filter((message) => message.id !== messageId && message.media_id !== mediaId));
-      alert('Erro ao enviar mídia: ' + error.message);
+      alert('Erro ao enviar mídia: ' + formatMediaUploadError(error));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {

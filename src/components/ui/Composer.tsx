@@ -1,4 +1,4 @@
-import { Camera, Send } from 'lucide-react';
+import { Paperclip, Send } from 'lucide-react';
 import { useLayoutEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
 import { IconButton } from './IconButton';
 
@@ -42,26 +42,28 @@ export function Composer({
 
   return (
     <form className="composer" onSubmit={onSubmit}>
-      <IconButton
-        icon={<Camera size={18} />}
-        label="Anexar mídia"
-        onClick={onFileClick}
-        variant="ghost"
-        className="composer__media-button"
-        disabled={uploading}
-      />
       <div className="composer__field">
+        <button
+          type="button"
+          className="composer__attach-button"
+          onClick={onFileClick}
+          aria-label="Anexar mídia"
+          title="Anexar mídia"
+          disabled={uploading}
+        >
+          <Paperclip size={18} />
+        </button>
         <textarea
           ref={textareaRef}
           className="composer__textarea"
           rows={1}
-          placeholder="Escreva uma mensagem..."
+          placeholder="Mensagem"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           aria-label="Mensagem"
         />
-        <span className="composer__timer">20 min</span>
+        <span className="composer__timer">20m</span>
       </div>
       <IconButton
         icon={<Send size={18} />}
