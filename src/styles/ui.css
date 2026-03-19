@@ -2104,6 +2104,39 @@
   min-width: 0;
 }
 
+.media-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: fit-content;
+  padding: 0.3rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-soft);
+  background: var(--surface-overlay-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.media-mode-switch__option {
+  min-height: 2.25rem;
+  padding: 0 0.9rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition:
+    color var(--duration-med) var(--ease-standard),
+    background-color var(--duration-med) var(--ease-standard),
+    box-shadow var(--duration-med) var(--ease-standard);
+}
+
+.media-mode-switch__option--active {
+  color: var(--color-bg-2);
+  background: var(--gradient-brand);
+  box-shadow: var(--glow-lime);
+}
+
 .chat-security-meta {
   justify-content: center;
 }
@@ -2209,6 +2242,12 @@
   gap: 1rem;
 }
 
+.media-modal__inner--protected {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .media-modal__header,
 .media-modal__footer {
   display: flex;
@@ -2223,6 +2262,30 @@
   border: 1px solid var(--color-border-soft);
   background: var(--surface-media-frame);
   box-shadow: var(--shadow-lg);
+}
+
+.privacy-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(8, 0, 28, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.privacy-shield__card {
+  width: min(100%, 28rem);
+  display: grid;
+  gap: 0.875rem;
+  padding: 1.25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-soft);
+  background: var(--surface-modal);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
 }
 
 .status-dot {
@@ -2260,6 +2323,15 @@
   .chat-topbar__actions {
     justify-content: flex-end;
     gap: 0.5rem;
+  }
+
+  .media-mode-switch {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .media-mode-switch__option {
+    flex: 1;
   }
 
   .chat-main {

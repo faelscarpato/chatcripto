@@ -28,6 +28,8 @@ interface Message {
   is_view_once?: boolean;
   media_id?: string;
   media_type?: string;
+  media_view_mode?: 'once' | '30s' | null;
+  media_view_seconds?: number | null;
   created_at: string;
   decrypted_content?: string;
 }
@@ -170,6 +172,9 @@ export default function Chat({ room, onLeave }: ChatProps) {
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [mediaProtectionMode, setMediaProtectionMode] = useState<'once' | '30s'>('once');
+  const [privacyShieldActive, setPrivacyShieldActive] = useState(false);
+  const [privacyShieldReason, setPrivacyShieldReason] = useState<'focus' | 'screenshot' | null>(null);
 
   const inviteUrl = buildRoomInviteUrl(room.id);
   const roomPassword = sessionStorage.getItem(`room_key_${room.id}`) ?? '';
@@ -245,6 +250,69 @@ export default function Chat({ room, onLeave }: ChatProps) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [inviteOpen]);
+
+  useEffect(() => {
+    let screenshotTimeoutId: number | null = null;
+
+    const activateFocusShield = () => {
+      setPrivacyShieldReason('focus');
+      setPrivacyShieldActive(true);
+    };
+
+    const clearShield = () => {
+      if (!document.hidden) {
+        setPrivacyShieldActive(false);
+        setPrivacyShieldReason(null);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        activateFocusShield();
+      } else {
+        clearShield();
+      }
+    };
+
+    const handleScreenshotShortcut = (event: KeyboardEvent) => {
+      const isPrintScreen = event.key === 'PrintScreen';
+      const isMacScreenshot =
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        (event.key === '3' || event.key === '4' || event.key === '5');
+
+      if (!isPrintScreen && !isMacScreenshot) {
+        return;
+      }
+
+      setPrivacyShieldReason('screenshot');
+      setPrivacyShieldActive(true);
+      if (screenshotTimeoutId) {
+        window.clearTimeout(screenshotTimeoutId);
+      }
+      screenshotTimeoutId = window.setTimeout(() => {
+        if (!document.hidden) {
+          setPrivacyShieldActive(false);
+          setPrivacyShieldReason(null);
+        }
+      }, 1400);
+    };
+
+    window.addEventListener('blur', activateFocusShield);
+    window.addEventListener('focus', clearShield);
+    window.addEventListener('keydown', handleScreenshotShortcut);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (screenshotTimeoutId) {
+        window.clearTimeout(screenshotTimeoutId);
+      }
+      window.removeEventListener('blur', activateFocusShield);
+      window.removeEventListener('focus', clearShield);
+      window.removeEventListener('keydown', handleScreenshotShortcut);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   const fetchMessages = async () => {
     const { data } = await supabase
@@ -366,6 +434,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
     const messageId = crypto.randomUUID();
     const mediaPath = `${room.id}/${mediaId}`;
     let uploadSucceeded = false;
+    const mediaViewSeconds = mediaProtectionMode === '30s' ? 30 : null;
 
     try {
       const buffer = await file.arrayBuffer();
@@ -386,6 +455,8 @@ export default function Chat({ room, onLeave }: ChatProps) {
         is_view_once: true,
         media_id: mediaId,
         media_type: file.type,
+        media_view_mode: mediaProtectionMode,
+        media_view_seconds: mediaViewSeconds,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => pruneExpiredMessages([...prev, optimisticMediaMsg]));
@@ -403,6 +474,8 @@ export default function Chat({ room, onLeave }: ChatProps) {
           is_view_once: true,
           media_id: mediaId,
           media_type: file.type,
+          media_view_mode: mediaProtectionMode,
+          media_view_seconds: mediaViewSeconds,
         },
       ]);
 
@@ -520,7 +593,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
   };
 
   return (
-    <div className="page-shell chat-page">
+    <div className="page-shell chat-page" onContextMenu={(event) => event.preventDefault()}>
       <Topbar
         className="chat-topbar"
         title={<span>{room.name}</span>}
@@ -583,6 +656,8 @@ export default function Chat({ room, onLeave }: ChatProps) {
                                 mediaId={msg.media_id!}
                                 onViewed={handleMediaViewed}
                                 decryptMedia={decryptMedia}
+                                mode={msg.media_view_mode ?? 'once'}
+                                durationSeconds={msg.media_view_seconds}
                               />
                             ) : (
                               <p>{msg.decrypted_content}</p>
@@ -628,6 +703,24 @@ export default function Chat({ room, onLeave }: ChatProps) {
 
       <div className="chat-composer-bar">
         <div className="chat-composer-inner">
+          <div className="media-mode-switch" role="tablist" aria-label="Modo de proteção da mídia">
+            <button
+              type="button"
+              className={cn('media-mode-switch__option', mediaProtectionMode === 'once' && 'media-mode-switch__option--active')}
+              onClick={() => setMediaProtectionMode('once')}
+              aria-pressed={mediaProtectionMode === 'once'}
+            >
+              View-once
+            </button>
+            <button
+              type="button"
+              className={cn('media-mode-switch__option', mediaProtectionMode === '30s' && 'media-mode-switch__option--active')}
+              onClick={() => setMediaProtectionMode('30s')}
+              aria-pressed={mediaProtectionMode === '30s'}
+            >
+              30s
+            </button>
+          </div>
           <Composer
             value={newMessage}
             onChange={setNewMessage}
@@ -638,6 +731,20 @@ export default function Chat({ room, onLeave }: ChatProps) {
           />
         </div>
       </div>
+
+      {privacyShieldActive ? (
+        <div className="privacy-shield" aria-live="polite">
+          <div className="privacy-shield__card">
+            <Badge variant="warning">Proteção ativa</Badge>
+            <h2 className="topbar__title">Conteúdo oculto</h2>
+            <p className="text-muted">
+              {privacyShieldReason === 'screenshot'
+                ? 'Atalho de captura detectado. A web não consegue impedir prints do sistema, mas a interface foi ocultada para reduzir exposição visual.'
+                : 'A conversa foi ocultada porque a janela perdeu foco ou ficou em segundo plano.'}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {inviteOpen ? (
         <div className="invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">

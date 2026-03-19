@@ -41,6 +41,8 @@ ALTER TABLE public.rooms ALTER COLUMN age_group SET NOT NULL;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_view_once BOOLEAN DEFAULT false;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_id TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_type TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_view_mode TEXT CHECK (media_view_mode IN ('once', '30s'));
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_view_seconds INTEGER;
 
 -- 2.1 Storage para midias efemeras
 INSERT INTO storage.buckets (id, name, public)
