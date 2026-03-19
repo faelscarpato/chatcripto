@@ -1,8 +1,10 @@
+const encoder = new TextEncoder();
+let hasWarnedAboutDecryptFailure = false;
+
 /**
  * Derives a cryptographic key from a password and salt using PBKDF2.
  */
 export async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
   const passwordKey = await window.crypto.subtle.importKey(
     'raw',
     encoder.encode(password),
@@ -61,7 +63,6 @@ export function base64ToBlob(base64: string, contentType: string = 'application/
  * Encrypts a message (string or ArrayBuffer) using AES-GCM.
  */
 export async function encryptData(data: string | ArrayBuffer, key: CryptoKey): Promise<{ encrypted: string; iv: string }> {
-  const encoder = new TextEncoder();
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const buffer = typeof data === 'string' ? encoder.encode(data) : data;
   
@@ -113,15 +114,26 @@ export async function decryptMessage(encrypted: string, iv: string, key: CryptoK
     const decryptedBuffer = await decryptToBuffer(encrypted, iv, key);
     return decoder.decode(decryptedBuffer);
   } catch (e) {
-    console.error('Decryption failed:', e);
-    return '[Encrypted Message - Wrong Key]';
+    if (import.meta.env.DEV && !hasWarnedAboutDecryptFailure) {
+      hasWarnedAboutDecryptFailure = true;
+      console.warn('Decryption failed. The current room key does not match one or more messages.', e);
+    }
+    return '[Mensagem indisponivel - chave incorreta]';
   }
+}
+
+/**
+ * Generates a deterministic verifier for a room password without storing the password itself.
+ */
+export async function deriveRoomPasswordVerifier(password: string, roomId: string): Promise<string> {
+  const payload = encoder.encode(`room:${roomId}:${password}`);
+  const digest = await window.crypto.subtle.digest('SHA-256', payload);
+  return bufferToBase64(digest);
 }
 
 /**
  * Generate a salt for key derivation. 
  */
 export function getSalt(roomId: string): Uint8Array {
-  const encoder = new TextEncoder();
   return encoder.encode(roomId.padEnd(16, '0').slice(0, 16));
 }

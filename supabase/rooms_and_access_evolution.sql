@@ -4,7 +4,9 @@
 -- 1. Adicionar campos de Categoria e Configuração de Senha na tabela de salas
 ALTER TABLE public.rooms 
 ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Geral',
-ADD COLUMN IF NOT EXISTS require_password_every_time BOOLEAN DEFAULT false;
+ADD COLUMN IF NOT EXISTS require_password_every_time BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS password_verifier TEXT,
+ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id);
 
 -- 2. Criar Tabela de Acesso Persistente (Controle de quem já entrou em qual sala)
 CREATE TABLE IF NOT EXISTS public.room_access (

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Home, PlusSquare, SlidersHorizontal, UserRound } from 'lucide-react';
-import { deriveKey, getSalt } from '../lib/crypto';
+import { deriveKey, deriveRoomPasswordVerifier, getSalt } from '../lib/crypto';
 import { DEFAULT_PROFILE_EMOJI, normalizeProfileEmoji } from '../lib/profileEmoji';
 import { shareRoomInvite } from '../lib/share';
 import { supabase } from '../lib/supabase';
@@ -22,6 +22,7 @@ interface Room {
   age_group: string;
   category: string;
   require_password_every_time: boolean;
+  password_verifier: string | null;
   created_at: string;
 }
 
@@ -155,11 +156,31 @@ export default function RoomList({
     }
   };
 
+  const validateRoomPassword = async (room: Room, password: string) => {
+    if (!room.password_verifier) {
+      return 'legacy' as const;
+    }
+
+    const verifier = await deriveRoomPasswordVerifier(password, room.id);
+    return verifier === room.password_verifier ? ('valid' as const) : ('invalid' as const);
+  };
+
   const tryJoinDirectly = async (room: Room) => {
     const savedKey = sessionStorage.getItem(`room_key_${room.id}`);
     const hasAccess = userAccess.includes(room.id);
 
     if (hasAccess && !room.require_password_every_time && savedKey) {
+      const savedKeyStatus = await validateRoomPassword(room, savedKey);
+      if (savedKeyStatus !== 'valid') {
+        sessionStorage.removeItem(`room_key_${room.id}`);
+        setInputKey('');
+        setJoiningRoomId(room.id);
+        if (savedKeyStatus === 'legacy') {
+          alert('Esta sala foi criada em uma versao antiga. Recrie a sala para voltar a validar a senha corretamente.');
+        }
+        return;
+      }
+
       const salt = getSalt(room.id);
       const key = await deriveKey(savedKey, salt);
       onJoinRoom({
@@ -182,6 +203,16 @@ export default function RoomList({
 
     const room = rooms.find((item) => item.id === joiningRoomId);
     if (!room) {
+      return;
+    }
+
+    const passwordStatus = await validateRoomPassword(room, inputKey);
+    if (passwordStatus !== 'valid') {
+      alert(
+        passwordStatus === 'legacy'
+          ? 'Esta sala foi criada em uma versao antiga. Recrie a sala para validar a senha com seguranca.'
+          : 'Senha da sala incorreta.',
+      );
       return;
     }
 
@@ -297,6 +328,7 @@ export default function RoomList({
               const directAccess =
                 userAccess.includes(room.id) &&
                 !room.require_password_every_time &&
+                Boolean(room.password_verifier) &&
                 Boolean(sessionStorage.getItem(`room_key_${room.id}`));
 
               const summary = room.require_password_every_time

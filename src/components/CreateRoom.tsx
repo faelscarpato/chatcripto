@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Clock3, Home, KeyRound, LockKeyhole, PlusSquare, ShieldCheck, UserRound } from 'lucide-react';
-import { deriveKey, getSalt } from '../lib/crypto';
+import { deriveKey, deriveRoomPasswordVerifier, getSalt } from '../lib/crypto';
 import { supabase } from '../lib/supabase';
 import {
   BottomNav,
@@ -68,16 +68,31 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
       return;
     }
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert('Sessao expirada. Entre novamente para criar uma sala.');
+      return;
+    }
+
     setSubmitting(true);
+
+    const roomId = crypto.randomUUID();
+    const passwordVerifier = await deriveRoomPasswordVerifier(newRoomKey, roomId);
 
     const { data, error } = await supabase
       .from('rooms')
       .insert([
         {
+          id: roomId,
           name: newRoomName,
+          created_by: user.id,
           age_group: userProfile.age_group,
           category: newRoomCategory,
           require_password_every_time: requirePassEveryTime,
+          password_verifier: passwordVerifier,
         },
       ])
       .select()

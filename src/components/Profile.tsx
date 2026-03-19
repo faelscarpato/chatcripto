@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  Check,
   Bell,
   CalendarDays,
   ChevronRight,
@@ -20,9 +21,11 @@ import { DEFAULT_PROFILE_EMOJI, PROFILE_EMOJI_OPTIONS, normalizeProfileEmoji } f
 import { supabase } from '../lib/supabase';
 import {
   Avatar,
+  Badge,
   BottomNav,
   Button,
   Card,
+  Chip,
   IconButton,
   Input,
   SettingsRow,
@@ -40,6 +43,23 @@ interface ProfileData {
   age_group: 'Livre' | '+18';
 }
 
+interface OwnedRoom {
+  id: string;
+  name: string;
+  category: string;
+  age_group: 'Livre' | '+18';
+  require_password_every_time: boolean;
+  created_at: string;
+  created_by: string | null;
+}
+
+interface RoomDraft {
+  name: string;
+  category: string;
+}
+
+const ROOM_CATEGORIES = ['Geral', 'Tecnologia', 'Lazer', 'Trabalho', 'Privado', '+18'];
+
 interface ProfileProps {
   onNavigateHome: () => void;
   onNavigateCreate: () => void;
@@ -51,6 +71,10 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [email, setEmail] = useState('');
   const [accessCount, setAccessCount] = useState(0);
+  const [ownedRooms, setOwnedRooms] = useState<OwnedRoom[]>([]);
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [roomDrafts, setRoomDrafts] = useState<Record<string, RoomDraft>>({});
+  const [roomActionId, setRoomActionId] = useState<string | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [formData, setFormData] = useState<Partial<ProfileData>>({});
   const [pendingEmoji, setPendingEmoji] = useState(DEFAULT_PROFILE_EMOJI);
@@ -71,17 +95,36 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
 
       setEmail(user.email ?? '');
 
-      const [{ data, error }, { count }] = await Promise.all([
+      const [{ data, error }, { count }, { data: roomsData, error: roomsError }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('room_access').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase
+          .from('rooms')
+          .select('id, name, category, age_group, require_password_every_time, created_at, created_by')
+          .eq('created_by', user.id)
+          .order('created_at', { ascending: false }),
       ]);
 
       if (error) {
         throw error;
       }
 
+      if (roomsError) {
+        throw roomsError;
+      }
+
       setAccessCount(count ?? 0);
       setProfile({ ...data, profile_emoji: normalizeProfileEmoji(data.profile_emoji) });
+      setOwnedRooms((roomsData as OwnedRoom[] | null) ?? []);
+      setRoomDrafts(
+        ((roomsData as OwnedRoom[] | null) ?? []).reduce<Record<string, RoomDraft>>((accumulator, room) => {
+          accumulator[room.id] = {
+            name: room.name,
+            category: room.category,
+          };
+          return accumulator;
+        }, {}),
+      );
       setFormData({
         full_name: data.full_name || '',
         cpf: data.cpf || '',
@@ -121,6 +164,114 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
   const displayName = profile?.full_name?.trim() || profile?.username || 'Usuario';
   const usernameHandle = profile?.username ? `@${profile.username}` : '@usuario';
   const ageDescription = profile?.age_group === '+18' ? 'Perfil adulto verificado' : 'Perfil livre';
+  const roomCategoryOptions = ROOM_CATEGORIES.filter((category) => category !== '+18' || profile?.age_group === '+18');
+
+  const beginRoomEdit = (room: OwnedRoom) => {
+    setRoomDrafts((current) => ({
+      ...current,
+      [room.id]: {
+        name: room.name,
+        category: room.category,
+      },
+    }));
+    setEditingRoomId(room.id);
+  };
+
+  const cancelRoomEdit = (room: OwnedRoom) => {
+    setRoomDrafts((current) => ({
+      ...current,
+      [room.id]: {
+        name: room.name,
+        category: room.category,
+      },
+    }));
+    setEditingRoomId((current) => (current === room.id ? null : current));
+  };
+
+  const saveRoomChanges = async (roomId: string) => {
+    const draft = roomDrafts[roomId];
+    if (!draft?.name.trim()) {
+      alert('Informe um nome para a sala.');
+      return;
+    }
+
+    setRoomActionId(roomId);
+
+    try {
+      const updates = {
+        name: draft.name.trim(),
+        category: draft.category,
+      };
+
+      const { error } = await supabase.from('rooms').update(updates).eq('id', roomId);
+      if (error) {
+        throw error;
+      }
+
+      setOwnedRooms((current) =>
+        current.map((room) => (room.id === roomId ? { ...room, ...updates } : room)),
+      );
+      setEditingRoomId((current) => (current === roomId ? null : current));
+    } catch (error: any) {
+      alert('Erro ao atualizar sala: ' + error.message);
+    } finally {
+      setRoomActionId(null);
+    }
+  };
+
+  const toggleRoomPrivacy = async (room: OwnedRoom) => {
+    const nextPrivacy = !room.require_password_every_time;
+    setRoomActionId(room.id);
+
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .update({ require_password_every_time: nextPrivacy })
+        .eq('id', room.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setOwnedRooms((current) =>
+        current.map((item) =>
+          item.id === room.id ? { ...item, require_password_every_time: nextPrivacy } : item,
+        ),
+      );
+    } catch (error: any) {
+      alert('Erro ao alterar privacidade da sala: ' + error.message);
+    } finally {
+      setRoomActionId(null);
+    }
+  };
+
+  const deleteRoom = async (room: OwnedRoom) => {
+    const confirmed = window.confirm(`Apagar a sala "${room.name}"? Essa ação remove mensagens e acessos vinculados.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setRoomActionId(room.id);
+
+    try {
+      const { error } = await supabase.from('rooms').delete().eq('id', room.id);
+      if (error) {
+        throw error;
+      }
+
+      setOwnedRooms((current) => current.filter((item) => item.id !== room.id));
+      setRoomDrafts((current) => {
+        const next = { ...current };
+        delete next[room.id];
+        return next;
+      });
+      setEditingRoomId((current) => (current === room.id ? null : current));
+    } catch (error: any) {
+      alert('Erro ao apagar sala: ' + error.message);
+    } finally {
+      setRoomActionId(null);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -235,6 +386,7 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         <div className="stats-grid profile-stats-grid">
           <StatsCard label="Completude" value={`${completionScore}/4`} description="Campos essenciais preenchidos." />
           <StatsCard label="Acessos" value={String(accessCount)} description="Salas liberadas nesta conta." />
+          <StatsCard label="Criadas" value={String(ownedRooms.length)} description="Salas gerenciadas por voce." />
         </div>
 
         <div className="profile-cta-stack">
@@ -313,6 +465,137 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
               Salvar alterações
             </Button>
           </form>
+        </Card>
+
+        <Card className="section-stack profile-rooms-card">
+          <div className="profile-rooms-card__header">
+            <div className="section-stack section-stack--sm">
+              <p className="eyebrow">Gestão de salas</p>
+              <h2 className="topbar__title">Salas criadas por você</h2>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              leadingIcon={<PlusSquare size={16} />}
+              onClick={onNavigateCreate}
+            >
+              Nova sala
+            </Button>
+          </div>
+
+          {ownedRooms.length === 0 ? (
+            <div className="profile-rooms-empty">
+              <p className="text-muted">
+                Você ainda não criou nenhuma sala. Quando criar, poderá editar, privar, abrir ou apagar por aqui.
+              </p>
+            </div>
+          ) : (
+            <div className="profile-room-list">
+              {ownedRooms.map((room) => {
+                const draft = roomDrafts[room.id] ?? { name: room.name, category: room.category };
+                const isEditing = editingRoomId === room.id;
+                const isBusy = roomActionId === room.id;
+
+                return (
+                  <Card key={room.id} className="section-stack profile-room-item">
+                    <div className="profile-room-item__top">
+                      <div className="section-stack section-stack--sm profile-room-item__copy">
+                        <div className="toolbar-row profile-room-item__title-row">
+                          <h3 className="profile-room-item__title">{room.name}</h3>
+                          <Badge variant={room.require_password_every_time ? 'warning' : 'success'}>
+                            {room.require_password_every_time ? 'Privada' : 'Aberta'}
+                          </Badge>
+                        </div>
+                        <p className="profile-room-item__meta">
+                          {room.category} · #{room.id.slice(0, 6)} ·{' '}
+                          {new Date(room.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="section-stack">
+                        <Input
+                          label="Nome da sala"
+                          value={draft.name}
+                          maxLength={48}
+                          onChange={(event) =>
+                            setRoomDrafts((current) => ({
+                              ...current,
+                              [room.id]: { ...draft, name: event.target.value },
+                            }))
+                          }
+                        />
+
+                        <div className="section-stack section-stack--sm">
+                          <span className="ui-field__label">Categoria</span>
+                          <div className="create-category-row">
+                            {roomCategoryOptions.map((category) => (
+                              <Chip
+                                key={`${room.id}-${category}`}
+                                selected={draft.category === category}
+                                onClick={() =>
+                                  setRoomDrafts((current) => ({
+                                    ...current,
+                                    [room.id]: { ...draft, category },
+                                  }))
+                                }
+                              >
+                                {category}
+                              </Chip>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="profile-room-item__actions">
+                          <Button variant="ghost" size="sm" onClick={() => cancelRoomEdit(room)}>
+                            Cancelar
+                          </Button>
+                          <Button
+                            size="sm"
+                            loading={isBusy}
+                            leadingIcon={!isBusy ? <Check size={15} /> : null}
+                            onClick={() => void saveRoomChanges(room.id)}
+                          >
+                            Salvar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="profile-room-item__actions">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          leadingIcon={<Pencil size={15} />}
+                          onClick={() => beginRoomEdit(room)}
+                        >
+                          Editar
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          leadingIcon={<LockKeyhole size={15} />}
+                          loading={isBusy}
+                          onClick={() => void toggleRoomPrivacy(room)}
+                        >
+                          {room.require_password_every_time ? 'Abrir' : 'Privar'}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          leadingIcon={<Trash2 size={15} />}
+                          loading={isBusy}
+                          onClick={() => void deleteRoom(room)}
+                        >
+                          Apagar
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </Card>
       </main>
 

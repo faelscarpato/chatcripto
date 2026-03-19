@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 CREATE TABLE IF NOT EXISTS public.rooms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
+  password_verifier TEXT NOT NULL,
   created_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -34,6 +35,7 @@ ALTER TABLE public.profiles ALTER COLUMN profile_emoji SET DEFAULT '🙂';
 ALTER TABLE public.profiles ALTER COLUMN profile_emoji SET NOT NULL;
 
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS age_group TEXT CHECK (age_group IN ('Livre', '+18'));
+ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS password_verifier TEXT;
 UPDATE public.rooms SET age_group = 'Livre' WHERE age_group IS NULL;
 ALTER TABLE public.rooms ALTER COLUMN age_group SET DEFAULT 'Livre';
 ALTER TABLE public.rooms ALTER COLUMN age_group SET NOT NULL;
@@ -72,8 +74,19 @@ DROP POLICY IF EXISTS "Authenticated users can create rooms" ON public.rooms;
 CREATE POLICY "Authenticated users can create rooms" ON public.rooms FOR INSERT 
 WITH CHECK (
   auth.role() = 'authenticated' AND 
-  age_group = (SELECT COALESCE(age_group, 'Livre') FROM public.profiles WHERE id = auth.uid())
+  created_by = auth.uid() AND
+  age_group = (SELECT COALESCE(age_group, 'Livre') FROM public.profiles WHERE id = auth.uid()) AND
+  password_verifier IS NOT NULL
 );
+
+DROP POLICY IF EXISTS "Room creators can update their own rooms" ON public.rooms;
+CREATE POLICY "Room creators can update their own rooms" ON public.rooms FOR UPDATE
+USING (created_by = auth.uid())
+WITH CHECK (created_by = auth.uid());
+
+DROP POLICY IF EXISTS "Room creators can delete their own rooms" ON public.rooms;
+CREATE POLICY "Room creators can delete their own rooms" ON public.rooms FOR DELETE
+USING (created_by = auth.uid());
 
 -- 6. Políticas de Mensagens
 -- Simplificada para garantir que se o usuário pode VER a sala, ele pode VER/INSERIR mensagens
