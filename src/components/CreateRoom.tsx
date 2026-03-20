@@ -1,8 +1,21 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Clock3, Home, KeyRound, LockKeyhole, PlusSquare, ShieldCheck, UserRound } from 'lucide-react';
+import {
+  ArrowLeft,
+  Clock3,
+  Globe2,
+  Home,
+  KeyRound,
+  Link2,
+  PlusSquare,
+  ShieldCheck,
+  UserRound,
+  UserSquare2,
+} from 'lucide-react';
 import { deriveKey, deriveRoomPasswordVerifier, getSalt } from '../lib/crypto';
 import { supabase } from '../lib/supabase';
+import type { ActiveRoom, RoomTtlMinutes, RoomVisibility } from '../types/rooms';
 import {
+  Badge,
   BottomNav,
   Button,
   Card,
@@ -11,24 +24,66 @@ import {
   Input,
   PasswordField,
   RadioCard,
+  TimerPill,
 } from './ui';
 
 interface CreateRoomProps {
-  onJoinRoom: (room: { id: string; name: string; key: CryptoKey; requirePasswordEveryTime?: boolean }) => void;
+  onJoinRoom: (room: ActiveRoom) => void;
   onNavigateHome: () => void;
   onNavigateProfile: () => void;
 }
 
 const CATEGORIES = ['Geral', 'Tecnologia', 'Lazer', 'Trabalho', 'Privado', '+18'];
+const TIMER_OPTIONS: RoomTtlMinutes[] = [5, 10, 15, 20];
+
+const VISIBILITY_OPTIONS: Array<{
+  value: RoomVisibility;
+  title: string;
+  description: string;
+  icon: typeof Globe2;
+}> = [
+  {
+    value: 'public',
+    title: 'Publica',
+    description: 'Aparece na comunidade e pode ser descoberta por busca.',
+    icon: Globe2,
+  },
+  {
+    value: 'unlisted',
+    title: 'Nao listada',
+    description: 'Fica fora da comunidade e entra por link ou codigo.',
+    icon: Link2,
+  },
+  {
+    value: 'personal',
+    title: 'Pessoal',
+    description: 'Fica visivel apenas para o criador.',
+    icon: UserSquare2,
+  },
+];
+
+const VISIBILITY_BADGES: Record<RoomVisibility, 'public' | 'unlisted' | 'personal'> = {
+  public: 'public',
+  unlisted: 'unlisted',
+  personal: 'personal',
+};
+
+const VISIBILITY_LABELS: Record<RoomVisibility, string> = {
+  public: 'Publica',
+  unlisted: 'Nao listada',
+  personal: 'Pessoal',
+};
 
 export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfile }: CreateRoomProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [userProfile, setUserProfile] = useState<{ age_group: string } | null>(null);
+  const [userProfile, setUserProfile] = useState<{ age_group: 'Livre' | '+18' } | null>(null);
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomDescription, setNewRoomDescription] = useState('');
   const [newRoomKey, setNewRoomKey] = useState('');
   const [newRoomCategory, setNewRoomCategory] = useState('Geral');
+  const [newRoomVisibility, setNewRoomVisibility] = useState<RoomVisibility>('public');
+  const [messageTtlMinutes, setMessageTtlMinutes] = useState<RoomTtlMinutes>(20);
   const [requirePassEveryTime, setRequirePassEveryTime] = useState(false);
 
   useEffect(() => {
@@ -56,9 +111,16 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
     } = await supabase.auth.getUser();
 
     if (user) {
-      await supabase
-        .from('room_access')
-        .upsert({ user_id: user.id, room_id: roomId }, { onConflict: 'user_id, room_id' });
+      await supabase.from('room_access').upsert(
+        {
+          user_id: user.id,
+          room_id: roomId,
+          role: 'owner',
+          is_favorite: false,
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id, room_id' },
+      );
     }
   };
 
@@ -81,18 +143,23 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
 
     const roomId = crypto.randomUUID();
     const passwordVerifier = await deriveRoomPasswordVerifier(newRoomKey, roomId);
+    const nowIso = new Date().toISOString();
 
     const { data, error } = await supabase
       .from('rooms')
       .insert([
         {
           id: roomId,
-          name: newRoomName,
+          name: newRoomName.trim(),
+          description: newRoomDescription.trim() || null,
           created_by: user.id,
           age_group: userProfile.age_group,
           category: newRoomCategory,
+          visibility: newRoomVisibility,
+          message_ttl_minutes: messageTtlMinutes,
           require_password_every_time: requirePassEveryTime,
           password_verifier: passwordVerifier,
+          last_activity_at: nowIso,
         },
       ])
       .select()
@@ -114,6 +181,11 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
         name: data.name,
         key,
         requirePasswordEveryTime: data.require_password_every_time,
+        visibility: data.visibility,
+        messageTtlMinutes: data.message_ttl_minutes,
+        createdBy: data.created_by,
+        description: data.description,
+        category: data.category,
       });
     }
 
@@ -126,7 +198,7 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
         <main className="page-container">
           <Card className="empty-state">
             <span className="ui-spinner" aria-hidden="true" />
-            <p className="text-muted">Carregando permissões de criação...</p>
+            <p className="text-muted">Carregando permissoes de criacao...</p>
           </Card>
         </main>
       </div>
@@ -163,29 +235,26 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
 
             <Input
               aria-label="Descricao opcional"
-              placeholder="Descrição (opcional)"
+              placeholder="Descricao da sala"
               value={newRoomDescription}
               onChange={(event) => setNewRoomDescription(event.target.value)}
               maxLength={120}
             />
 
             <section className="section-stack section-stack--sm">
-              <h2 className="create-section-title">Privacidade</h2>
-              <div className="create-privacy-stack" role="radiogroup" aria-label="Tipo de sala">
-                <RadioCard
-                  icon={KeyRound}
-                  title="Sala privada"
-                  description="Sempre exige senha para entrar novamente."
-                  checked={requirePassEveryTime}
-                  onClick={() => setRequirePassEveryTime(true)}
-                />
-                <RadioCard
-                  icon={LockKeyhole}
-                  title="Sala pública"
-                  description="A chave fica salva apenas nesta sessão."
-                  checked={!requirePassEveryTime}
-                  onClick={() => setRequirePassEveryTime(false)}
-                />
+              <h2 className="create-section-title">Visibilidade</h2>
+              <div className="create-privacy-stack" role="radiogroup" aria-label="Visibilidade da sala">
+                {VISIBILITY_OPTIONS.map((option) => (
+                  <RadioCard
+                    key={option.value}
+                    icon={option.icon}
+                    title={option.title}
+                    description={option.description}
+                    checked={newRoomVisibility === option.value}
+                    badge={<Badge variant={VISIBILITY_BADGES[option.value]}>{option.title}</Badge>}
+                    onClick={() => setNewRoomVisibility(option.value)}
+                  />
+                ))}
               </div>
             </section>
 
@@ -212,17 +281,61 @@ export default function CreateRoom({ onJoinRoom, onNavigateHome, onNavigateProfi
               required
             />
 
-            <Card className="create-timer-card">
+            <section className="section-stack section-stack--sm">
+              <h2 className="create-section-title">Timer das mensagens</h2>
+              <div className="create-category-row">
+                {TIMER_OPTIONS.map((minutes) => (
+                  <Chip
+                    key={minutes}
+                    selected={messageTtlMinutes === minutes}
+                    onClick={() => setMessageTtlMinutes(minutes)}
+                  >
+                    {minutes} min
+                  </Chip>
+                ))}
+              </div>
+            </section>
+
+            <section className="section-stack section-stack--sm">
+              <h2 className="create-section-title">Acesso recorrente</h2>
+              <div className="create-privacy-stack" role="radiogroup" aria-label="Persistencia da senha">
+                <RadioCard
+                  icon={ShieldCheck}
+                  title="Reusar acesso nesta conta"
+                  description="Quem ja entrou pode voltar sem redigitar a senha, se a chave estiver salva nesta sessao."
+                  checked={!requirePassEveryTime}
+                  onClick={() => setRequirePassEveryTime(false)}
+                />
+                <RadioCard
+                  icon={KeyRound}
+                  title="Exigir senha sempre"
+                  description="Pede a senha em toda reentrada, mesmo para quem ja entrou antes."
+                  checked={requirePassEveryTime}
+                  onClick={() => setRequirePassEveryTime(true)}
+                />
+              </div>
+            </section>
+
+            <Card className="create-timer-card create-preview-card">
               <div className="create-timer-card__body">
                 <span className="create-timer-card__icon" aria-hidden="true">
                   <Clock3 size={20} />
                 </span>
                 <div className="section-stack section-stack--sm create-timer-card__copy">
-                  <p className="create-timer-card__title">Mensagens desaparecem</p>
-                  <p className="create-timer-card__text">em 20 minutos</p>
+                  <p className="create-timer-card__title">Preview rapido</p>
+                  <div className="toolbar-row">
+                    <Badge variant={VISIBILITY_BADGES[newRoomVisibility]}>{VISIBILITY_LABELS[newRoomVisibility]}</Badge>
+                    <Badge variant={requirePassEveryTime ? 'warning' : 'info'}>
+                      {requirePassEveryTime ? 'Senha sempre' : 'Acesso salvo'}
+                    </Badge>
+                    <Badge variant="muted">{newRoomCategory}</Badge>
+                  </div>
+                  <p className="create-timer-card__text">
+                    Expira em {messageTtlMinutes} min{newRoomVisibility === 'personal' ? ' e fica visivel so para voce.' : '.'}
+                  </p>
                 </div>
               </div>
-              <span className="mini-switch mini-switch--checked" aria-hidden="true" />
+              <TimerPill minutes={messageTtlMinutes} variant="strong" />
             </Card>
           </Card>
 

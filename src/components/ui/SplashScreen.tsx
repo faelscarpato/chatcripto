@@ -13,7 +13,7 @@ export function SplashScreen() {
 
         <div className="splash-screen__tagline">
           <span className="splash-screen__line" aria-hidden="true" />
-          <p>Mensagens seguras que desaparecem em 20 minutos</p>
+          <p>Mensagens seguras com expiracao por sala</p>
           <span className="splash-screen__line" aria-hidden="true" />
         </div>
       </div>

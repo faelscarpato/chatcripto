@@ -2,10 +2,11 @@ import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
 type BadgeVariant = 'muted' | 'success' | 'danger' | 'warning' | 'info' | 'primary';
+type ExtendedBadgeVariant = BadgeVariant | 'public' | 'unlisted' | 'personal' | 'owner' | 'favorite';
 
 interface BadgeProps {
   children: ReactNode;
-  variant?: BadgeVariant;
+  variant?: ExtendedBadgeVariant;
   icon?: ReactNode;
   className?: string;
 }

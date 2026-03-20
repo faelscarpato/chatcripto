@@ -1,14 +1,18 @@
 import { Clock3 } from 'lucide-react';
 
 interface TimerPillProps {
-  label: string;
+  label?: string;
+  minutes?: number;
+  variant?: 'subtle' | 'strong';
 }
 
-export function TimerPill({ label }: TimerPillProps) {
+export function TimerPill({ label, minutes, variant = 'subtle' }: TimerPillProps) {
+  const resolvedLabel = label ?? `${minutes ?? 20} min`;
+
   return (
-    <span className="timer-pill">
+    <span className={`timer-pill timer-pill--${variant}`}>
       <Clock3 size={14} />
-      <span>{label}</span>
+      <span>{resolvedLabel}</span>
     </span>
   );
 }

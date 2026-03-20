@@ -1,5 +1,6 @@
-import { ArrowRight, Eye, Link2, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, Heart, Link2, LockKeyhole, ShieldCheck, Star, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { RoomVisibility } from '../../types/rooms';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { Card } from './Card';
@@ -11,36 +12,46 @@ interface RoomCardProps {
   roomId: string;
   category: string;
   ageGroup: string;
-  summary: string;
-  featureLabel: string;
-  accessLabel: string;
+  visibility: RoomVisibility;
+  messageTtlMinutes: number;
+  description?: string | null;
   presenceCount: number;
   presenceLabel?: string;
-  timerLabel?: string;
   selected?: boolean;
   directAccess?: boolean;
   locked?: boolean;
+  isFavorite?: boolean;
+  isOwner?: boolean;
   joinForm?: ReactNode;
   onShare?: () => void;
+  onToggleFavorite?: () => void;
   onRequestJoin: () => void;
 }
+
+const VISIBILITY_LABELS: Record<RoomVisibility, string> = {
+  public: 'Publica',
+  unlisted: 'Nao listada',
+  personal: 'Pessoal',
+};
 
 export function RoomCard({
   name,
   roomId,
   category,
   ageGroup,
-  summary,
-  featureLabel,
-  accessLabel,
+  visibility,
+  messageTtlMinutes,
+  description,
   presenceCount,
   presenceLabel = 'pessoas com acesso',
-  timerLabel = '20m',
   selected = false,
   directAccess = false,
   locked = false,
+  isFavorite = false,
+  isOwner = false,
   joinForm,
   onShare,
+  onToggleFavorite,
   onRequestJoin,
 }: RoomCardProps) {
   return (
@@ -53,20 +64,23 @@ export function RoomCard({
           <div className="section-stack section-stack--sm room-card__copy">
             <div className="toolbar-row room-card__headline">
               <h3 className="room-card__title">{name}</h3>
+              <Badge variant={visibility}>{VISIBILITY_LABELS[visibility]}</Badge>
               <Badge variant={ageGroup === '+18' ? 'danger' : 'success'}>{ageGroup}</Badge>
+              {isOwner ? <Badge variant="owner">Owner</Badge> : null}
+              {isFavorite ? <Badge variant="favorite">Favorita</Badge> : null}
             </div>
-            <p className="room-card__summary">{summary}</p>
+            <p className="room-card__summary">
+              {description?.trim() || `Sala ${VISIBILITY_LABELS[visibility].toLowerCase()} na categoria ${category.toLowerCase()}.`}
+            </p>
           </div>
         </div>
-        <TimerPill label={timerLabel} />
+        <TimerPill minutes={messageTtlMinutes} variant="strong" />
       </div>
 
       <div className="room-card__chips">
-        <Badge variant="muted" icon={<Eye size={12} />}>
-          {featureLabel}
-        </Badge>
+        <Badge variant="muted">{category}</Badge>
         <Badge variant={directAccess ? 'primary' : 'info'}>
-          {accessLabel}
+          {directAccess ? 'Acesso salvo' : locked ? 'Senha exigida' : 'Acesso sob demanda'}
         </Badge>
       </div>
 
@@ -76,7 +90,7 @@ export function RoomCard({
           <div className="room-card__meta-line">
             <span className="room-card__meta-item">
               {directAccess ? <ShieldCheck size={14} /> : <LockKeyhole size={14} />}
-              <span>{locked ? 'Entrada com senha' : 'Chave salva'}</span>
+              <span>{locked ? 'Entrada com senha' : 'Chave salva na sessao'}</span>
             </span>
             <span className="room-card__meta-item">
               <span className="room-card__dot" />
@@ -86,7 +100,18 @@ export function RoomCard({
           </div>
         </div>
 
-        <div className="room-card__actions">
+        <div className="room-card__actions room-card__actions--triple">
+          {onToggleFavorite ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="room-card__secondary"
+              onClick={onToggleFavorite}
+              leadingIcon={isFavorite ? <Heart size={15} /> : <Star size={15} />}
+            >
+              {isFavorite ? 'Favorita' : 'Favoritar'}
+            </Button>
+          ) : null}
           {onShare ? (
             <Button
               variant="secondary"

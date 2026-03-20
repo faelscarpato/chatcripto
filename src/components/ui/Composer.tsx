@@ -9,6 +9,8 @@ interface ComposerProps {
   onFileClick: () => void;
   sending?: boolean;
   uploading?: boolean;
+  timerLabel?: string;
+  hint?: string;
 }
 
 export function Composer({
@@ -18,6 +20,8 @@ export function Composer({
   onFileClick,
   sending = false,
   uploading = false,
+  timerLabel = 'TTL',
+  hint,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,38 +45,41 @@ export function Composer({
   };
 
   return (
-    <form className="composer" onSubmit={onSubmit}>
-      <div className="composer__field">
-        <button
-          type="button"
-          className="composer__attach-button"
-          onClick={onFileClick}
-          aria-label="Anexar mídia"
-          title="Anexar mídia"
-          disabled={uploading}
-        >
-          <Paperclip size={18} />
-        </button>
-        <textarea
-          ref={textareaRef}
-          className="composer__textarea"
-          rows={1}
-          placeholder="Mensagem"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={handleKeyDown}
-          aria-label="Mensagem"
+    <div className="composer-shell">
+      <form className="composer" onSubmit={onSubmit}>
+        <div className="composer__field">
+          <button
+            type="button"
+            className="composer__attach-button"
+            onClick={onFileClick}
+            aria-label="Anexar mídia"
+            title="Anexar mídia"
+            disabled={uploading}
+          >
+            <Paperclip size={18} />
+          </button>
+          <textarea
+            ref={textareaRef}
+            className="composer__textarea"
+            rows={1}
+            placeholder="Mensagem"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={handleKeyDown}
+            aria-label="Mensagem"
+          />
+          <span className="composer__timer">{timerLabel}</span>
+        </div>
+        <IconButton
+          icon={<Send size={18} />}
+          label="Enviar mensagem"
+          type="submit"
+          variant={value.trim() ? 'primary' : 'secondary'}
+          className="composer__send-button"
+          disabled={!value.trim() || sending || uploading}
         />
-        <span className="composer__timer">20m</span>
-      </div>
-      <IconButton
-        icon={<Send size={18} />}
-        label="Enviar mensagem"
-        type="submit"
-        variant={value.trim() ? 'primary' : 'secondary'}
-        className="composer__send-button"
-        disabled={!value.trim() || sending || uploading}
-      />
-    </form>
+      </form>
+      {hint ? <p className="composer__hint">{hint}</p> : null}
+    </div>
   );
 }

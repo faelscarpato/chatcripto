@@ -5,6 +5,7 @@ import { base64ToUint8Array, decryptMessage, encryptData, encryptMessage } from 
 import { DEFAULT_PROFILE_EMOJI, normalizeProfileEmoji } from '../lib/profileEmoji';
 import { buildRoomInviteUrl, copyRoomInvite, shareRoomInvite } from '../lib/share';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
+import type { ActiveRoom, RoomVisibility } from '../types/rooms';
 import { ViewOnceBubble } from './ViewOnceBubble';
 import {
   Badge,
@@ -25,6 +26,9 @@ interface Message {
   user_id: string;
   encrypted_content: string;
   iv: string;
+  expires_at?: string | null;
+  message_type?: 'user' | 'system' | null;
+  metadata?: Record<string, unknown> | null;
   is_view_once?: boolean;
   media_id?: string;
   media_type?: string;
@@ -35,19 +39,40 @@ interface Message {
 }
 
 interface ChatProps {
-  room: { id: string; name: string; key: CryptoKey; requirePasswordEveryTime?: boolean };
+  room: ActiveRoom;
   onLeave: () => void;
 }
 
-const MESSAGE_TTL_MS = 20 * 60 * 1000;
 const SENDER_VARIANT_COUNT = 6;
 
-function isMessageExpired(message: Pick<Message, 'created_at'>) {
-  return Date.now() - new Date(message.created_at).getTime() >= MESSAGE_TTL_MS;
+const VISIBILITY_LABELS: Record<RoomVisibility, string> = {
+  public: 'Publica',
+  unlisted: 'Nao listada',
+  personal: 'Pessoal',
+};
+
+function getRoomTtlMs(room: ActiveRoom) {
+  return room.messageTtlMinutes * 60 * 1000;
 }
 
-function pruneExpiredMessages<T extends Pick<Message, 'created_at'>>(messages: T[]) {
-  return messages.filter((message) => !isMessageExpired(message));
+function resolveMessageExpiry(message: Pick<Message, 'expires_at' | 'created_at' | 'is_view_once'>, roomTtlMs: number) {
+  if (message.expires_at) {
+    return new Date(message.expires_at).getTime();
+  }
+
+  const fallbackMs = message.is_view_once ? 24 * 60 * 60 * 1000 : roomTtlMs;
+  return new Date(message.created_at).getTime() + fallbackMs;
+}
+
+function isMessageExpired(message: Pick<Message, 'expires_at' | 'created_at' | 'is_view_once'>, roomTtlMs: number) {
+  return Date.now() >= resolveMessageExpiry(message, roomTtlMs);
+}
+
+function pruneExpiredMessages<T extends Pick<Message, 'expires_at' | 'created_at' | 'is_view_once'>>(
+  messages: T[],
+  roomTtlMs: number,
+) {
+  return messages.filter((message) => !isMessageExpired(message, roomTtlMs));
 }
 
 function getSenderVariant(userId: string) {
@@ -118,7 +143,7 @@ function detectImageMimeType(buffer: ArrayBuffer) {
 }
 
 function formatMediaUploadError(error: { message?: string; statusCode?: string | number } | null | undefined) {
-  const message = error?.message?.trim() || 'Falha desconhecida no upload da mídia.';
+  const message = error?.message?.trim() || 'Falha desconhecida no upload da midia.';
   const normalized = message.toLowerCase();
   const statusCode = `${error?.statusCode ?? ''}`;
 
@@ -165,7 +190,7 @@ async function uploadEncryptedMedia(path: string, payload: Blob) {
 export default function Chat({ room, onLeave }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [profiles, setProfiles] = useState<Record<string, { username: string; profile_emoji: string }>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -176,11 +201,13 @@ export default function Chat({ room, onLeave }: ChatProps) {
   const [privacyShieldActive, setPrivacyShieldActive] = useState(false);
   const [privacyShieldReason, setPrivacyShieldReason] = useState<'focus' | 'screenshot' | null>(null);
 
+  const roomTtlMs = getRoomTtlMs(room);
   const inviteUrl = buildRoomInviteUrl(room.id);
   const roomPassword = sessionStorage.getItem(`room_key_${room.id}`) ?? '';
+  const visibilityLabel = VISIBILITY_LABELS[room.visibility];
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    supabase.auth.getUser().then(({ data }) => setUser(data.user ? { id: data.user.id } : null));
     void fetchMessages();
 
     const channel = supabase
@@ -192,15 +219,17 @@ export default function Chat({ room, onLeave }: ChatProps) {
           const msg = payload.new as Message;
 
           const processNewMessage = async () => {
-            if (!msg.is_view_once) {
+            if (!msg.is_view_once && msg.message_type !== 'system') {
               msg.decrypted_content = await decryptMessage(msg.encrypted_content, msg.iv, room.key);
+            } else if (!msg.is_view_once) {
+              msg.decrypted_content = msg.encrypted_content;
             }
 
             setMessages((prev) => {
               if (prev.some((item) => item.id === msg.id)) {
                 return prev;
               }
-              return pruneExpiredMessages([...prev, msg]);
+              return pruneExpiredMessages([...prev, msg], roomTtlMs);
             });
           };
 
@@ -220,15 +249,15 @@ export default function Chat({ room, onLeave }: ChatProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [room.id, room.key]);
+  }, [room.id, room.key, roomTtlMs]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      setMessages((prev) => pruneExpiredMessages(prev));
+      setMessages((prev) => pruneExpiredMessages(prev, roomTtlMs));
     }, 30000);
 
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [roomTtlMs]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -314,6 +343,10 @@ export default function Chat({ room, onLeave }: ChatProps) {
     };
   }, []);
 
+  const touchRoomActivity = async () => {
+    await supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', room.id);
+  };
+
   const fetchMessages = async () => {
     const { data } = await supabase
       .from('messages')
@@ -328,10 +361,12 @@ export default function Chat({ room, onLeave }: ChatProps) {
           ...msg,
           decrypted_content: msg.is_view_once
             ? undefined
-            : await decryptMessage(msg.encrypted_content, msg.iv, room.key),
+            : msg.message_type === 'system'
+              ? msg.encrypted_content
+              : await decryptMessage(msg.encrypted_content, msg.iv, room.key),
         })),
       );
-      setMessages(pruneExpiredMessages(decrypted));
+      setMessages(pruneExpiredMessages(decrypted, roomTtlMs));
     }
   };
 
@@ -381,8 +416,9 @@ export default function Chat({ room, onLeave }: ChatProps) {
     }
 
     setIsSending(true);
-    const content = newMessage;
+    const content = newMessage.trim();
     const { encrypted, iv } = await encryptMessage(content, room.key);
+    const expiresAt = new Date(Date.now() + roomTtlMs).toISOString();
     setNewMessage('');
 
     const optimisticMsg: Message = {
@@ -392,9 +428,11 @@ export default function Chat({ room, onLeave }: ChatProps) {
       encrypted_content: encrypted,
       iv,
       created_at: new Date().toISOString(),
+      expires_at: expiresAt,
       decrypted_content: content,
+      message_type: 'user',
     };
-    setMessages((prev) => pruneExpiredMessages([...prev, optimisticMsg]));
+    setMessages((prev) => pruneExpiredMessages([...prev, optimisticMsg], roomTtlMs));
 
     const { error } = await supabase.from('messages').insert([
       {
@@ -403,12 +441,16 @@ export default function Chat({ room, onLeave }: ChatProps) {
         user_id: user.id,
         encrypted_content: encrypted,
         iv,
+        expires_at: expiresAt,
+        message_type: 'user',
       },
     ]);
 
     if (error) {
       alert(error.message);
       setNewMessage(content);
+    } else {
+      await touchRoomActivity();
     }
 
     setIsSending(false);
@@ -422,7 +464,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
 
     const MAX_SIZE = 5 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      alert('O arquivo é muito grande! O limite máximo é de 5MB.');
+      alert('O arquivo e muito grande. O limite maximo e de 5MB.');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -433,6 +475,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
     const mediaId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const mediaPath = `${room.id}/${mediaId}`;
+    const expiresAt = new Date(Date.now() + roomTtlMs).toISOString();
     let uploadSucceeded = false;
     const mediaViewSeconds = mediaProtectionMode === '30s' ? 30 : null;
 
@@ -458,8 +501,10 @@ export default function Chat({ room, onLeave }: ChatProps) {
         media_view_mode: mediaProtectionMode,
         media_view_seconds: mediaViewSeconds,
         created_at: new Date().toISOString(),
+        expires_at: expiresAt,
+        message_type: 'user',
       };
-      setMessages((prev) => pruneExpiredMessages([...prev, optimisticMediaMsg]));
+      setMessages((prev) => pruneExpiredMessages([...prev, optimisticMediaMsg], roomTtlMs));
 
       await uploadEncryptedMedia(mediaPath, encryptedBlob);
       uploadSucceeded = true;
@@ -471,6 +516,8 @@ export default function Chat({ room, onLeave }: ChatProps) {
           user_id: user.id,
           encrypted_content: '[View-Once Media]',
           iv,
+          expires_at: expiresAt,
+          message_type: 'user',
           is_view_once: true,
           media_id: mediaId,
           media_type: file.type,
@@ -482,12 +529,14 @@ export default function Chat({ room, onLeave }: ChatProps) {
       if (msgError) {
         throw msgError;
       }
+
+      await touchRoomActivity();
     } catch (error: any) {
       if (uploadSucceeded) {
         await supabase.storage.from('ephemeral-media').remove([mediaPath]);
       }
       setMessages((prev) => prev.filter((message) => message.id !== messageId && message.media_id !== mediaId));
-      alert('Erro ao enviar mídia: ' + formatMediaUploadError(error));
+      alert(`Erro ao enviar midia: ${formatMediaUploadError(error)}`);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -515,10 +564,10 @@ export default function Chat({ room, onLeave }: ChatProps) {
     const decryptedBuffer = await window.crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: ivBuffer as any,
+        iv: ivBuffer as BufferSource,
       },
       room.key,
-      encryptedBuffer as any,
+      encryptedBuffer,
     );
 
     const mediaType = message.media_type || detectImageMimeType(decryptedBuffer) || 'application/octet-stream';
@@ -536,6 +585,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
       const result = await shareRoomInvite({
         roomId: room.id,
         roomName: room.name,
+        visibility: room.visibility,
         requirePasswordEveryTime: room.requirePasswordEveryTime,
       });
 
@@ -546,8 +596,8 @@ export default function Chat({ room, onLeave }: ChatProps) {
             : 'Convite copiado para a area de transferencia.',
         );
       }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') {
+    } catch (error: unknown) {
+      if ((error as { name?: string } | null)?.name === 'AbortError') {
         return;
       }
 
@@ -559,6 +609,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
     try {
       await copyRoomInvite({
         roomId: room.id,
+        visibility: room.visibility,
         requirePasswordEveryTime: room.requirePasswordEveryTime,
         password: roomPassword || undefined,
       });
@@ -600,19 +651,30 @@ export default function Chat({ room, onLeave }: ChatProps) {
         subtitle={
           <span className="toolbar-row text-offline">
             <LockKeyhole size={14} />
-            <span>{room.requirePasswordEveryTime ? 'Sala privada · senha obrigatoria' : 'Sala protegida e efemera'}</span>
+            <span>{room.description?.trim() || 'Criptografia ativa e expiracao configurada por sala.'}</span>
           </span>
+        }
+        badges={
+          <>
+            <Badge variant={room.visibility}>{visibilityLabel}</Badge>
+            <Badge variant={room.requirePasswordEveryTime ? 'warning' : 'info'}>
+              {room.requirePasswordEveryTime ? 'Senha sempre' : 'Reentrada salva'}
+            </Badge>
+            {room.category ? <Badge variant="muted">{room.category}</Badge> : null}
+          </>
         }
         leading={<IconButton icon={<ArrowLeft size={18} />} label="Voltar" onClick={onLeave} />}
         trailing={
           <div className="toolbar-row chat-topbar__actions">
-            <TimerPill label="20 min" />
-            <IconButton
-              icon={<Link2 size={18} />}
-              label="Convidar amigos"
-              variant="ghost"
-              onClick={() => setInviteOpen(true)}
-            />
+            <TimerPill minutes={room.messageTtlMinutes} variant="strong" />
+            {room.visibility !== 'personal' ? (
+              <IconButton
+                icon={<Link2 size={18} />}
+                label="Convidar amigos"
+                variant="ghost"
+                onClick={() => setInviteOpen(true)}
+              />
+            ) : null}
           </div>
         }
       />
@@ -621,12 +683,22 @@ export default function Chat({ room, onLeave }: ChatProps) {
         <section className="chat-thread">
           <div className="chat-content-panel">
             <div className="chat-scroll section-stack">
+              <Card className="chat-system-note">
+                <div className="toolbar-row">
+                  <Badge variant={room.visibility}>{visibilityLabel}</Badge>
+                  <TimerPill minutes={room.messageTtlMinutes} />
+                </div>
+                <p className="text-muted">
+                  Mensagens desta sala expiram em {room.messageTtlMinutes} minutos. Midias view-once continuam com protecao especial.
+                </p>
+              </Card>
+
               {messages.length === 0 ? (
                 <Card className="empty-state">
                   <Badge variant="info">Criptografia ativa</Badge>
                   <h3 className="topbar__title">Nenhuma mensagem ainda</h3>
                   <p className="text-muted">
-                    O que for enviado aqui expira em 20 minutos e fica cifrado em trânsito e repouso.
+                    O que for enviado aqui expira em {room.messageTtlMinutes} minutos e fica cifrado em transito e repouso.
                   </p>
                 </Card>
               ) : (
@@ -637,9 +709,18 @@ export default function Chat({ room, onLeave }: ChatProps) {
                     <span className="chat-divider__line" />
                   </div>
                   {messages.map((msg, idx) => {
+                    if (msg.message_type === 'system') {
+                      return (
+                        <Card key={msg.id} className="chat-system-note chat-system-note--message">
+                          <Badge variant="info">Sistema</Badge>
+                          <p className="text-muted">{msg.decrypted_content ?? msg.encrypted_content}</p>
+                        </Card>
+                      );
+                    }
+
                     const isMe = msg.user_id === user?.id;
                     const prevMsg = messages[idx - 1];
-                    const isSameUser = prevMsg?.user_id === msg.user_id;
+                    const isSameUser = prevMsg?.user_id === msg.user_id && prevMsg?.message_type !== 'system';
 
                     return (
                       <div key={msg.id} className={cn(isSameUser && 'section-stack section-stack--sm')}>
@@ -675,18 +756,27 @@ export default function Chat({ room, onLeave }: ChatProps) {
         </section>
 
         <aside className="chat-aside">
-          <StatsCard label="Retenção" value="20m" description="Mensagens textuais e mídia somem após o ciclo efêmero." />
-          <StatsCard label="Uploads" value="5MB" description="Mídia view-once com limite atual de cinco megabytes." />
+          <StatsCard
+            label="Retencao"
+            value={`${room.messageTtlMinutes}m`}
+            description="Mensagens de texto e metadados da sala seguem o TTL configurado nesta conversa."
+          />
+          <StatsCard label="Uploads" value="5MB" description="Midia view-once com limite atual de cinco megabytes." />
           <Card className="section-stack">
             <p className="eyebrow">Contexto da sala</p>
             <SettingsRow
-              title="Proteção da chave"
-              description="Derivação local por sala via Web Crypto antes de ler ou enviar mensagens."
+              title="Protecao da chave"
+              description="Derivacao local por sala via Web Crypto antes de ler ou enviar mensagens."
               icon={<ShieldCheck size={18} />}
             />
             <SettingsRow
-              title="Privacidade efêmera"
-              description="Fotos view-once são removidas do storage assim que visualizadas."
+              title="Visibilidade ativa"
+              description={`Esta sala esta marcada como ${visibilityLabel.toLowerCase()}.`}
+              icon={<LockKeyhole size={18} />}
+            />
+            <SettingsRow
+              title="Privacidade efemera"
+              description="Fotos view-once sao removidas do storage assim que visualizadas."
               icon={<Sparkles size={18} />}
             />
           </Card>
@@ -703,7 +793,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
 
       <div className="chat-composer-bar">
         <div className="chat-composer-inner">
-          <div className="media-mode-switch" role="tablist" aria-label="Modo de proteção da mídia">
+          <div className="media-mode-switch" role="tablist" aria-label="Modo de protecao da midia">
             <button
               type="button"
               className={cn('media-mode-switch__option', mediaProtectionMode === 'once' && 'media-mode-switch__option--active')}
@@ -728,6 +818,8 @@ export default function Chat({ room, onLeave }: ChatProps) {
             onFileClick={() => fileInputRef.current?.click()}
             sending={isSending}
             uploading={isUploading}
+            timerLabel={`${room.messageTtlMinutes}m`}
+            hint={`Mensagens expiram em ${room.messageTtlMinutes} min nesta sala.`}
           />
         </div>
       </div>
@@ -735,11 +827,11 @@ export default function Chat({ room, onLeave }: ChatProps) {
       {privacyShieldActive ? (
         <div className="privacy-shield" aria-live="polite">
           <div className="privacy-shield__card">
-            <Badge variant="warning">Proteção ativa</Badge>
-            <h2 className="topbar__title">Conteúdo oculto</h2>
+            <Badge variant="warning">Protecao ativa</Badge>
+            <h2 className="topbar__title">Conteudo oculto</h2>
             <p className="text-muted">
               {privacyShieldReason === 'screenshot'
-                ? 'Atalho de captura detectado. A web não consegue impedir prints do sistema, mas a interface foi ocultada para reduzir exposição visual.'
+                ? 'Atalho de captura detectado. A web nao consegue impedir prints do sistema, mas a interface foi ocultada para reduzir exposicao visual.'
                 : 'A conversa foi ocultada porque a janela perdeu foco ou ficou em segundo plano.'}
             </p>
           </div>
@@ -766,7 +858,7 @@ export default function Chat({ room, onLeave }: ChatProps) {
             <div className="section-stack section-stack--sm">
               <p className="text-muted">
                 {room.requirePasswordEveryTime
-                  ? 'Sala privada: compartilhe o link e envie a senha da sala separadamente.'
+                  ? 'Compartilhe o link e envie a senha da sala separadamente.'
                   : 'Compartilhe o link abaixo para convidar amigos para esta sala.'}
               </p>
               <div className="invite-modal__link-box">

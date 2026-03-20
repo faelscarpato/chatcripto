@@ -7,6 +7,7 @@ import Profile from './components/Profile';
 import RoomList from './components/RoomList';
 import { SplashScreen } from './components/ui';
 import { supabase } from './lib/supabase';
+import type { ActiveRoom } from './types/rooms';
 
 type AppScreen = 'home' | 'create' | 'profile';
 
@@ -17,12 +18,7 @@ function getInviteRoomId() {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [currentRoom, setCurrentRoom] = useState<{
-    id: string;
-    name: string;
-    key: CryptoKey;
-    requirePasswordEveryTime?: boolean;
-  } | null>(null);
+  const [currentRoom, setCurrentRoom] = useState<ActiveRoom | null>(null);
   const [screen, setScreen] = useState<AppScreen>('home');
   const [loading, setLoading] = useState(true);
   const [invitedRoomId, setInvitedRoomId] = useState<string | null>(() => getInviteRoomId());

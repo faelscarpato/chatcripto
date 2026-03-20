@@ -4,12 +4,13 @@ import { cn } from '../../lib/cn';
 interface TopbarProps {
   title: ReactNode;
   subtitle?: ReactNode;
+  badges?: ReactNode;
   leading?: ReactNode;
   trailing?: ReactNode;
   className?: string;
 }
 
-export function Topbar({ title, subtitle, leading, trailing, className }: TopbarProps) {
+export function Topbar({ title, subtitle, badges, leading, trailing, className }: TopbarProps) {
   return (
     <header className={cn('topbar', className)}>
       <div className="topbar__inner">
@@ -18,6 +19,7 @@ export function Topbar({ title, subtitle, leading, trailing, className }: Topbar
           <div className="topbar__meta">
             <h2 className="topbar__title">{title}</h2>
             {subtitle ? <p className="topbar__subtitle">{subtitle}</p> : null}
+            {badges ? <div className="topbar__badges">{badges}</div> : null}
           </div>
         </div>
         {trailing ? <div className="topbar__slot">{trailing}</div> : null}

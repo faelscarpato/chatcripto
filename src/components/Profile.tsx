@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  Archive,
   Check,
   Bell,
   CalendarDays,
   ChevronRight,
+  Copy,
   CreditCard,
   Home,
   LockKeyhole,
@@ -18,7 +20,9 @@ import {
   UserRound,
 } from 'lucide-react';
 import { DEFAULT_PROFILE_EMOJI, PROFILE_EMOJI_OPTIONS, normalizeProfileEmoji } from '../lib/profileEmoji';
+import { copyRoomInvite } from '../lib/share';
 import { supabase } from '../lib/supabase';
+import type { RoomTtlMinutes, RoomVisibility } from '../types/rooms';
 import {
   Avatar,
   Badge,
@@ -30,6 +34,7 @@ import {
   Input,
   SettingsRow,
   StatsCard,
+  TimerPill,
 } from './ui';
 
 interface ProfileData {
@@ -46,19 +51,29 @@ interface ProfileData {
 interface OwnedRoom {
   id: string;
   name: string;
+  description: string | null;
   category: string;
   age_group: 'Livre' | '+18';
+  visibility: RoomVisibility;
+  message_ttl_minutes: RoomTtlMinutes;
   require_password_every_time: boolean;
+  is_archived: boolean;
   created_at: string;
   created_by: string | null;
 }
 
 interface RoomDraft {
   name: string;
+  description: string;
   category: string;
+  visibility: RoomVisibility;
+  message_ttl_minutes: RoomTtlMinutes;
+  is_archived: boolean;
 }
 
 const ROOM_CATEGORIES = ['Geral', 'Tecnologia', 'Lazer', 'Trabalho', 'Privado', '+18'];
+const ROOM_TTL_OPTIONS: RoomTtlMinutes[] = [5, 10, 15, 20];
+const ROOM_VISIBILITY_OPTIONS: RoomVisibility[] = ['public', 'unlisted', 'personal'];
 
 interface ProfileProps {
   onNavigateHome: () => void;
@@ -100,9 +115,9 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         supabase.from('room_access').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase
           .from('rooms')
-          .select('id, name, category, age_group, require_password_every_time, created_at, created_by')
+          .select('id, name, description, category, age_group, visibility, message_ttl_minutes, require_password_every_time, is_archived, created_at, created_by')
           .eq('created_by', user.id)
-          .order('created_at', { ascending: false }),
+          .order('last_activity_at', { ascending: false }),
       ]);
 
       if (error) {
@@ -120,7 +135,11 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
         ((roomsData as OwnedRoom[] | null) ?? []).reduce<Record<string, RoomDraft>>((accumulator, room) => {
           accumulator[room.id] = {
             name: room.name,
+            description: room.description || '',
             category: room.category,
+            visibility: room.visibility,
+            message_ttl_minutes: room.message_ttl_minutes,
+            is_archived: room.is_archived,
           };
           return accumulator;
         }, {}),
@@ -171,7 +190,11 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
       ...current,
       [room.id]: {
         name: room.name,
+        description: room.description || '',
         category: room.category,
+        visibility: room.visibility,
+        message_ttl_minutes: room.message_ttl_minutes,
+        is_archived: room.is_archived,
       },
     }));
     setEditingRoomId(room.id);
@@ -182,7 +205,11 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
       ...current,
       [room.id]: {
         name: room.name,
+        description: room.description || '',
         category: room.category,
+        visibility: room.visibility,
+        message_ttl_minutes: room.message_ttl_minutes,
+        is_archived: room.is_archived,
       },
     }));
     setEditingRoomId((current) => (current === room.id ? null : current));
@@ -200,7 +227,11 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
     try {
       const updates = {
         name: draft.name.trim(),
+        description: draft.description.trim() || null,
         category: draft.category,
+        visibility: draft.visibility,
+        message_ttl_minutes: draft.message_ttl_minutes,
+        is_archived: draft.is_archived,
       };
 
       const { error } = await supabase.from('rooms').update(updates).eq('id', roomId);
@@ -219,14 +250,14 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
     }
   };
 
-  const toggleRoomPrivacy = async (room: OwnedRoom) => {
-    const nextPrivacy = !room.require_password_every_time;
+  const toggleRoomArchive = async (room: OwnedRoom) => {
+    const nextArchived = !room.is_archived;
     setRoomActionId(room.id);
 
     try {
       const { error } = await supabase
         .from('rooms')
-        .update({ require_password_every_time: nextPrivacy })
+        .update({ is_archived: nextArchived })
         .eq('id', room.id);
 
       if (error) {
@@ -235,13 +266,30 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
 
       setOwnedRooms((current) =>
         current.map((item) =>
-          item.id === room.id ? { ...item, require_password_every_time: nextPrivacy } : item,
+          item.id === room.id ? { ...item, is_archived: nextArchived } : item,
         ),
       );
     } catch (error: any) {
-      alert('Erro ao alterar privacidade da sala: ' + error.message);
+      alert('Erro ao arquivar a sala: ' + error.message);
     } finally {
       setRoomActionId(null);
+    }
+  };
+
+  const copyInviteLink = async (room: OwnedRoom) => {
+    try {
+      await copyRoomInvite({
+        roomId: room.id,
+        visibility: room.visibility,
+        requirePasswordEveryTime: room.require_password_every_time,
+      });
+      alert(
+        room.require_password_every_time
+          ? 'Link copiado. Envie a senha da sala separadamente.'
+          : 'Link copiado para a area de transferencia.',
+      );
+    } catch {
+      alert('Nao foi possivel copiar o convite desta sala.');
     }
   };
 
@@ -492,7 +540,14 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
           ) : (
             <div className="profile-room-list">
               {ownedRooms.map((room) => {
-                const draft = roomDrafts[room.id] ?? { name: room.name, category: room.category };
+                const draft = roomDrafts[room.id] ?? {
+                  name: room.name,
+                  description: room.description || '',
+                  category: room.category,
+                  visibility: room.visibility,
+                  message_ttl_minutes: room.message_ttl_minutes,
+                  is_archived: room.is_archived,
+                };
                 const isEditing = editingRoomId === room.id;
                 const isBusy = roomActionId === room.id;
 
@@ -502,15 +557,19 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
                       <div className="section-stack section-stack--sm profile-room-item__copy">
                         <div className="toolbar-row profile-room-item__title-row">
                           <h3 className="profile-room-item__title">{room.name}</h3>
-                          <Badge variant={room.require_password_every_time ? 'warning' : 'success'}>
-                            {room.require_password_every_time ? 'Privada' : 'Aberta'}
+                          <Badge variant={room.visibility}>{room.visibility === 'public' ? 'Publica' : room.visibility === 'unlisted' ? 'Nao listada' : 'Pessoal'}</Badge>
+                          <Badge variant={room.require_password_every_time ? 'warning' : 'info'}>
+                            {room.require_password_every_time ? 'Senha sempre' : 'Acesso salvo'}
                           </Badge>
+                          {room.is_archived ? <Badge variant="muted">Arquivada</Badge> : null}
                         </div>
+                        {room.description ? <p className="text-muted">{room.description}</p> : null}
                         <p className="profile-room-item__meta">
                           {room.category} · #{room.id.slice(0, 6)} ·{' '}
                           {new Date(room.created_at).toLocaleDateString('pt-BR')}
                         </p>
                       </div>
+                      <TimerPill minutes={room.message_ttl_minutes} />
                     </div>
 
                     {isEditing ? (
@@ -523,6 +582,18 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
                             setRoomDrafts((current) => ({
                               ...current,
                               [room.id]: { ...draft, name: event.target.value },
+                            }))
+                          }
+                        />
+
+                        <Input
+                          label="Descricao"
+                          value={draft.description}
+                          maxLength={120}
+                          onChange={(event) =>
+                            setRoomDrafts((current) => ({
+                              ...current,
+                              [room.id]: { ...draft, description: event.target.value },
                             }))
                           }
                         />
@@ -546,6 +617,59 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
                             ))}
                           </div>
                         </div>
+
+                        <div className="section-stack section-stack--sm">
+                          <span className="ui-field__label">Visibilidade</span>
+                          <div className="create-category-row">
+                            {ROOM_VISIBILITY_OPTIONS.map((visibility) => (
+                              <Chip
+                                key={`${room.id}-${visibility}`}
+                                selected={draft.visibility === visibility}
+                                onClick={() =>
+                                  setRoomDrafts((current) => ({
+                                    ...current,
+                                    [room.id]: { ...draft, visibility },
+                                  }))
+                                }
+                              >
+                                {visibility === 'public' ? 'Publica' : visibility === 'unlisted' ? 'Nao listada' : 'Pessoal'}
+                              </Chip>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="section-stack section-stack--sm">
+                          <span className="ui-field__label">Timer</span>
+                          <div className="create-category-row">
+                            {ROOM_TTL_OPTIONS.map((ttl) => (
+                              <Chip
+                                key={`${room.id}-ttl-${ttl}`}
+                                selected={draft.message_ttl_minutes === ttl}
+                                onClick={() =>
+                                  setRoomDrafts((current) => ({
+                                    ...current,
+                                    [room.id]: { ...draft, message_ttl_minutes: ttl },
+                                  }))
+                                }
+                              >
+                                {ttl} min
+                              </Chip>
+                            ))}
+                          </div>
+                        </div>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setRoomDrafts((current) => ({
+                              ...current,
+                              [room.id]: { ...draft, is_archived: !draft.is_archived },
+                            }))
+                          }
+                        >
+                          {draft.is_archived ? 'Marcar como ativa' : 'Marcar como arquivada'}
+                        </Button>
 
                         <div className="profile-room-item__actions">
                           <Button variant="ghost" size="sm" onClick={() => cancelRoomEdit(room)}>
@@ -571,14 +695,24 @@ export default function Profile({ onNavigateHome, onNavigateCreate }: ProfilePro
                         >
                           Editar
                         </Button>
+                        {room.visibility !== 'personal' ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            leadingIcon={<Copy size={15} />}
+                            onClick={() => void copyInviteLink(room)}
+                          >
+                            Copiar convite
+                          </Button>
+                        ) : null}
                         <Button
                           variant="secondary"
                           size="sm"
-                          leadingIcon={<LockKeyhole size={15} />}
+                          leadingIcon={<Archive size={15} />}
                           loading={isBusy}
-                          onClick={() => void toggleRoomPrivacy(room)}
+                          onClick={() => void toggleRoomArchive(room)}
                         >
-                          {room.require_password_every_time ? 'Abrir' : 'Privar'}
+                          {room.is_archived ? 'Restaurar' : 'Arquivar'}
                         </Button>
                         <Button
                           variant="danger"
