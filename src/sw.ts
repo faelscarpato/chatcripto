@@ -1,3 +1,5 @@
+/// <reference lib="WebWorker" />
+
 import { clientsClaim, skipWaiting } from 'workbox-core';
 import {
   cleanupOutdatedCaches,
