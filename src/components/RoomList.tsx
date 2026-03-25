@@ -78,8 +78,11 @@ interface RpcErrorLike {
 function isRpcMissingError(error: unknown) {
   const candidate = (error ?? {}) as RpcErrorLike;
   return (
+    candidate.status === 300 ||
     candidate.status === 404 ||
+    candidate.code === 'PGRST203' ||
     candidate.code === 'PGRST202' ||
+    candidate.message?.toLowerCase().includes('could not choose the best candidate function') === true ||
     candidate.message?.toLowerCase().includes('could not find the function') === true
   );
 }
