@@ -1,5 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Copy, Link2, LockKeyhole, Share2, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  BellRing,
+  Copy,
+  KeyRound,
+  Link2,
+  LockKeyhole,
+  Settings2,
+  Share2,
+  ShieldCheck,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { cn } from '../lib/cn';
 import { base64ToUint8Array, decryptMessage, encryptData, encryptMessage } from '../lib/crypto';
 import { DEFAULT_PROFILE_EMOJI, normalizeProfileEmoji } from '../lib/profileEmoji';
@@ -8,14 +20,13 @@ import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import type { ActiveRoom, RoomVisibility } from '../types/rooms';
 import { ViewOnceBubble } from './ViewOnceBubble';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
   Composer,
   IconButton,
   MessageBubble,
-  SettingsRow,
-  StatsCard,
   TimerPill,
   Topbar,
 } from './ui';
@@ -409,6 +420,47 @@ export default function Chat({ room, onLeave }: ChatProps) {
     return profiles[messageUserId]?.profile_emoji ?? DEFAULT_PROFILE_EMOJI;
   };
 
+  const memberDirectory = useMemo(() => {
+    const knownIds = new Set<string>();
+    const latestActivity = new Map<string, number>();
+
+    for (const message of messages) {
+      if (!message.user_id) {
+        continue;
+      }
+      knownIds.add(message.user_id);
+      latestActivity.set(message.user_id, Math.max(latestActivity.get(message.user_id) ?? 0, Date.parse(message.created_at)));
+    }
+
+    for (const profileId of Object.keys(profiles)) {
+      knownIds.add(profileId);
+    }
+
+    if (user?.id) {
+      knownIds.add(user.id);
+    }
+
+    const now = Date.now();
+
+    return [...knownIds]
+      .map((id) => {
+        const profile = profiles[id];
+        const lastActivityAt = latestActivity.get(id) ?? 0;
+        const isOnline = id === user?.id || (lastActivityAt > 0 && now - lastActivityAt < 8 * 60 * 1000);
+
+        return {
+          id,
+          name: id === user?.id ? 'Voce' : profile?.username ?? `Membro ${id.slice(0, 4)}`,
+          emoji: profile?.profile_emoji ?? DEFAULT_PROFILE_EMOJI,
+          role: room.createdBy === id ? 'Owner' : id === user?.id ? 'You' : 'Member',
+          isOnline,
+        };
+      })
+      .sort((left, right) => Number(right.isOnline) - Number(left.isOnline) || left.name.localeCompare(right.name));
+  }, [messages, profiles, room.createdBy, user?.id]);
+
+  const onlineMemberCount = memberDirectory.filter((member) => member.isOnline).length;
+
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!newMessage.trim() || !user || isSending) {
@@ -755,30 +807,68 @@ export default function Chat({ room, onLeave }: ChatProps) {
           </div>
         </section>
 
-        <aside className="chat-aside">
-          <StatsCard
-            label="Retencao"
-            value={`${room.messageTtlMinutes}m`}
-            description="Mensagens de texto e metadados da sala seguem o TTL configurado nesta conversa."
-          />
-          <StatsCard label="Uploads" value="5MB" description="Midia view-once com limite atual de cinco megabytes." />
+        <aside className="chat-aside vault-chat-aside">
+          <Card className="vault-member-card">
+            <div className="vault-member-card__head">
+              <p className="vault-member-card__title">Secure Members</p>
+              <p className="vault-member-card__online">{onlineMemberCount} online</p>
+            </div>
+
+            {memberDirectory.length === 0 ? (
+              <p className="text-muted">Nenhum membro identificado ainda nesta conversa.</p>
+            ) : (
+              <div className="vault-member-list">
+                {memberDirectory.slice(0, 6).map((member) => (
+                  <div key={member.id} className="vault-member-row">
+                    <div className="vault-member-row__identity">
+                      <Avatar fallback={member.name} size="sm" emoji={member.emoji} />
+                      <div className="vault-member-row__meta">
+                        <p className="vault-member-row__name">{member.name}</p>
+                        <p className="vault-member-row__role">{member.role}</p>
+                      </div>
+                    </div>
+                    <span className="vault-member-row__status">{member.isOnline ? 'online' : 'away'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {room.visibility !== 'personal' ? (
+              <Button variant="secondary" size="sm" leadingIcon={<Link2 size={14} />} onClick={() => setInviteOpen(true)}>
+                Invite Member
+              </Button>
+            ) : null}
+          </Card>
+
           <Card className="section-stack">
-            <p className="eyebrow">Contexto da sala</p>
-            <SettingsRow
-              title="Protecao da chave"
-              description="Derivacao local por sala via Web Crypto antes de ler ou enviar mensagens."
-              icon={<ShieldCheck size={18} />}
-            />
-            <SettingsRow
-              title="Visibilidade ativa"
-              description={`Esta sala esta marcada como ${visibilityLabel.toLowerCase()}.`}
-              icon={<LockKeyhole size={18} />}
-            />
-            <SettingsRow
-              title="Privacidade efemera"
-              description="Fotos view-once sao removidas do storage assim que visualizadas."
-              icon={<Sparkles size={18} />}
-            />
+            <p className="vault-member-card__title">Shared Vault</p>
+            <div className="vault-tools-grid">
+              <button type="button" className="vault-tool-button">
+                <ShieldCheck size={16} />
+                Assets
+              </button>
+              <button type="button" className="vault-tool-button">
+                <KeyRound size={16} />
+                Keys
+              </button>
+              <button type="button" className="vault-tool-button">
+                <Sparkles size={16} />
+                Privacy
+              </button>
+              <button type="button" className="vault-tool-button">
+                <LockKeyhole size={16} />
+                Access
+              </button>
+            </div>
+          </Card>
+
+          <Card className="section-stack">
+            <p className="vault-member-card__title">Quick Controls</p>
+            <div className="vault-shortcuts">
+              <IconButton icon={<BellRing size={16} />} label="Alertas" variant="ghost" />
+              <IconButton icon={<KeyRound size={16} />} label="Chaves" variant="ghost" />
+              <IconButton icon={<Settings2 size={16} />} label="Configurar sala" variant="ghost" />
+            </div>
           </Card>
         </aside>
       </main>

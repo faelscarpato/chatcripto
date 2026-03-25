@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Home, PlusSquare, SlidersHorizontal, UserRound } from 'lucide-react';
+import {
+  ArrowRight,
+  Home,
+  Link2,
+  LockKeyhole,
+  PlusSquare,
+  ShieldCheck,
+  SlidersHorizontal,
+  Star,
+  UserRound,
+} from 'lucide-react';
 import { deriveKey, deriveRoomPasswordVerifier, getSalt } from '../lib/crypto';
 import { DEFAULT_PROFILE_EMOJI, normalizeProfileEmoji } from '../lib/profileEmoji';
 import { shareRoomInvite } from '../lib/share';
 import { supabase } from '../lib/supabase';
-import type { ActiveRoom, RoomAccessEntry, RoomRole, RoomSummary } from '../types/rooms';
+import type { ActiveRoom, RoomAccessEntry, RoomRole, RoomSummary, RoomVisibility } from '../types/rooms';
 import {
   Avatar,
   Badge,
@@ -14,7 +24,6 @@ import {
   Chip,
   Input,
   PasswordField,
-  RoomCard,
   SearchBarPill,
 } from './ui';
 
@@ -33,6 +42,47 @@ const FILTER_OPTIONS = [
   { id: 'favorites', label: 'Favoritas' },
   { id: '+18', label: '+18' },
 ] as const;
+
+const VISIBILITY_LABELS: Record<RoomVisibility, string> = {
+  public: 'Publica',
+  unlisted: 'Nao listada',
+  personal: 'Pessoal',
+};
+
+interface InviteSnapshot {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  visibility: RoomVisibility;
+  message_ttl_minutes: 5 | 10 | 15 | 20;
+  require_password_every_time: boolean;
+  password_verifier: string | null;
+  age_group: 'Livre' | '+18';
+  created_by: string | null;
+  last_activity_at: string | null;
+  created_at: string;
+}
+
+interface JoinRoomResult {
+  ok: boolean;
+  reason: string;
+}
+
+interface RpcErrorLike {
+  code?: string;
+  message?: string;
+  status?: number;
+}
+
+function isRpcMissingError(error: unknown) {
+  const candidate = (error ?? {}) as RpcErrorLike;
+  return (
+    candidate.status === 404 ||
+    candidate.code === 'PGRST202' ||
+    candidate.message?.toLowerCase().includes('could not find the function') === true
+  );
+}
 
 function parseInviteInput(value: string) {
   const trimmed = value.trim();
@@ -71,6 +121,8 @@ export default function RoomList({
   const [inviteInput, setInviteInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<(typeof FILTER_OPTIONS)[number]['id']>('all');
+  const [rpcInviteAvailable, setRpcInviteAvailable] = useState(true);
+  const [rpcJoinAvailable, setRpcJoinAvailable] = useState(true);
 
   useEffect(() => {
     void fetchProfile();
@@ -81,6 +133,11 @@ export default function RoomList({
 
   useEffect(() => {
     if (!invitedRoomId || !accessReady) {
+      return;
+    }
+
+    if (!/^[0-9a-fA-F-]{36}$/.test(invitedRoomId)) {
+      onInviteHandled?.();
       return;
     }
 
@@ -166,14 +223,52 @@ export default function RoomList({
     setRoomMemberCounts(counts);
   };
 
+  const toRoomSummary = (snapshot: InviteSnapshot): RoomSummary => ({
+    id: snapshot.id,
+    name: snapshot.name,
+    description: snapshot.description,
+    age_group: snapshot.age_group,
+    category: snapshot.category || 'Geral',
+    visibility: snapshot.visibility,
+    message_ttl_minutes: snapshot.message_ttl_minutes,
+    require_password_every_time: snapshot.require_password_every_time,
+    password_verifier: snapshot.password_verifier,
+    created_by: snapshot.created_by,
+    is_archived: false,
+    last_activity_at: snapshot.last_activity_at ?? snapshot.created_at,
+    created_at: snapshot.created_at,
+  });
+
   const fetchRoomById = async (roomId: string) => {
-    const { data, error } = await supabase.from('rooms').select('*').eq('id', roomId).maybeSingle();
-    if (error || !data) {
+    if (!rpcInviteAvailable) {
+      const { data: fallbackData, error: fallbackError } = await supabase.from('rooms').select('*').eq('id', roomId).maybeSingle();
+      if (fallbackError || !fallbackData) {
+        return null;
+      }
+      setRooms((current) => (current.some((item) => item.id === fallbackData.id) ? current : [fallbackData, ...current]));
+      return fallbackData as RoomSummary;
+    }
+
+    const { data, error } = await supabase.rpc('get_room_invite_snapshot', { p_room_id: roomId });
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const room = toRoomSummary(data[0] as InviteSnapshot);
+      setRooms((current) => (current.some((item) => item.id === room.id) ? current : [room, ...current]));
+      return room;
+    }
+
+    if (!isRpcMissingError(error)) {
       return null;
     }
 
-    setRooms((current) => (current.some((room) => room.id === data.id) ? current : [data, ...current]));
-    return data as RoomSummary;
+    setRpcInviteAvailable(false);
+
+    const { data: fallbackData, error: fallbackError } = await supabase.from('rooms').select('*').eq('id', roomId).maybeSingle();
+    if (fallbackError || !fallbackData) {
+      return null;
+    }
+
+    setRooms((current) => (current.some((item) => item.id === fallbackData.id) ? current : [fallbackData, ...current]));
+    return fallbackData as RoomSummary;
   };
 
   const registerAccess = async (roomId: string, role?: RoomRole) => {
@@ -182,7 +277,7 @@ export default function RoomList({
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return;
+      return false;
     }
 
     const payload: Record<string, unknown> = {
@@ -195,15 +290,18 @@ export default function RoomList({
       payload.role = role;
     }
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('room_access')
       .upsert(payload, { onConflict: 'user_id, room_id' })
       .select('room_id, role, is_favorite, last_seen_at, created_at')
       .single();
 
-    if (data) {
-      setUserAccess((current) => ({ ...current, [roomId]: data }));
+    if (error || !data) {
+      return false;
     }
+
+    setUserAccess((current) => ({ ...current, [roomId]: data }));
+    return true;
   };
 
   const validateRoomPassword = async (room: RoomSummary, password: string) => {
@@ -215,11 +313,75 @@ export default function RoomList({
     return verifier === room.password_verifier ? ('valid' as const) : ('invalid' as const);
   };
 
+  const joinRoomLegacy = async (room: RoomSummary, password: string) => {
+    const passwordStatus = await validateRoomPassword(room, password);
+    if (passwordStatus === 'legacy') {
+      return { ok: false, reason: 'room_without_verifier' } as JoinRoomResult;
+    }
+
+    if (passwordStatus === 'invalid') {
+      return { ok: false, reason: 'invalid_password' } as JoinRoomResult;
+    }
+
+    const accessSaved = await registerAccess(room.id, room.created_by === userProfile?.id ? 'owner' : undefined);
+    if (!accessSaved) {
+      return { ok: false, reason: 'legacy_access_failed' } as JoinRoomResult;
+    }
+
+    return { ok: true, reason: 'ok_legacy' } as JoinRoomResult;
+  };
+
+  const joinRoomSecure = async (room: RoomSummary, password: string) => {
+    if (!rpcJoinAvailable) {
+      return joinRoomLegacy(room, password);
+    }
+
+    const { data, error } = await supabase.rpc('join_room_with_password', {
+      p_room_id: room.id,
+      p_password: password,
+    });
+
+    if (error && isRpcMissingError(error)) {
+      setRpcJoinAvailable(false);
+      return joinRoomLegacy(room, password);
+    }
+
+    if (error) {
+      return { ok: false, reason: 'rpc_error' } as JoinRoomResult;
+    }
+
+    const first = Array.isArray(data) && data.length > 0 ? (data[0] as JoinRoomResult) : null;
+    if (!first) {
+      return { ok: false, reason: 'invalid_response' } as JoinRoomResult;
+    }
+
+    if (first.ok) {
+      await fetchUserAccess();
+    }
+
+    return first;
+  };
+
   const openRoomWithKey = async (room: RoomSummary, password: string) => {
+    const joinResult = await joinRoomSecure(room, password);
+    if (!joinResult.ok) {
+      const reasonMessageMap: Record<string, string> = {
+        unauthenticated: 'Sessao expirada. Entre novamente para continuar.',
+        room_not_found: 'Sala nao encontrada.',
+        age_group_mismatch: 'Seu perfil nao tem permissao para entrar nesta sala.',
+        personal_room_forbidden: 'Esta sala pessoal nao esta disponivel para sua conta.',
+        room_without_verifier: 'Esta sala nao possui verificador de senha configurado.',
+        invalid_password: 'Senha da sala incorreta.',
+        legacy_access_failed: 'Nao foi possivel registrar seu acesso a esta sala.',
+      };
+
+      alert(reasonMessageMap[joinResult.reason] ?? 'Nao foi possivel entrar na sala agora.');
+      return false;
+    }
+
     const salt = getSalt(room.id);
     const key = await deriveKey(password, salt);
     sessionStorage.setItem(`room_key_${room.id}`, password);
-    await registerAccess(room.id, room.created_by === userProfile?.id ? 'owner' : undefined);
 
     onJoinRoom({
       id: room.id,
@@ -232,6 +394,8 @@ export default function RoomList({
       description: room.description,
       category: room.category,
     });
+
+    return true;
   };
 
   const tryJoinDirectly = async (room: RoomSummary) => {
@@ -244,18 +408,12 @@ export default function RoomList({
     const hasAccess = Boolean(userAccess[room.id]) || room.created_by === userProfile?.id;
 
     if (hasAccess && !room.require_password_every_time && savedKey) {
-      const savedKeyStatus = await validateRoomPassword(room, savedKey);
-      if (savedKeyStatus !== 'valid') {
+      const opened = await openRoomWithKey(room, savedKey);
+      if (!opened) {
         sessionStorage.removeItem(`room_key_${room.id}`);
         setInputKey('');
         setJoiningRoomId(room.id);
-        if (savedKeyStatus === 'legacy') {
-          alert('Esta sala foi criada em uma versao antiga. Recrie a sala para voltar a validar a senha corretamente.');
-        }
-        return;
       }
-
-      await openRoomWithKey(room, savedKey);
       return;
     }
 
@@ -274,17 +432,12 @@ export default function RoomList({
       return;
     }
 
-    const passwordStatus = await validateRoomPassword(room, inputKey);
-    if (passwordStatus !== 'valid') {
-      alert(
-        passwordStatus === 'legacy'
-          ? 'Esta sala foi criada em uma versao antiga. Recrie a sala para validar a senha com seguranca.'
-          : 'Senha da sala incorreta.',
-      );
+    const opened = await openRoomWithKey(room, inputKey);
+    if (!opened) {
       return;
     }
 
-    await openRoomWithKey(room, inputKey);
+    setJoiningRoomId(null);
   };
 
   const handleInviteSubmit = async (event: React.FormEvent) => {
@@ -292,6 +445,11 @@ export default function RoomList({
     const roomId = parseInviteInput(inviteInput);
     if (!roomId) {
       alert('Cole um link de convite ou codigo valido.');
+      return;
+    }
+
+    if (!/^[0-9a-fA-F-]{36}$/.test(roomId)) {
+      alert('Codigo de sala invalido. Use um convite com ID UUID.');
       return;
     }
 
@@ -307,6 +465,11 @@ export default function RoomList({
   const toggleFavorite = async (room: RoomSummary) => {
     const current = userAccess[room.id];
     const nextFavorite = !current?.is_favorite;
+
+    if (!current && room.created_by !== userProfile?.id) {
+      alert('Entre na sala antes de favoritar.');
+      return;
+    }
 
     const {
       data: { user },
@@ -340,6 +503,33 @@ export default function RoomList({
     }
   };
 
+  const handleShareRoom = async (room: RoomSummary) => {
+    if (room.visibility === 'personal') {
+      return;
+    }
+
+    try {
+      const result = await shareRoomInvite({
+        roomId: room.id,
+        roomName: room.name,
+        visibility: room.visibility,
+        requirePasswordEveryTime: room.require_password_every_time,
+      });
+
+      if (result === 'copied') {
+        alert(
+          room.require_password_every_time
+            ? 'Convite copiado. Envie a senha da sala separadamente.'
+            : 'Convite copiado para a area de transferencia.',
+        );
+      }
+    } catch (error: unknown) {
+      if ((error as { name?: string } | null)?.name !== 'AbortError') {
+        alert('Nao foi possivel compartilhar o convite.');
+      }
+    }
+  };
+
   const visibleRooms = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
@@ -369,193 +559,126 @@ export default function RoomList({
     });
   }, [rooms, searchTerm, selectedFilter, userAccess, userProfile?.id]);
 
-  const myRooms = useMemo(
-    () => visibleRooms.filter((room) => room.created_by === userProfile?.id || Boolean(userAccess[room.id])),
-    [userAccess, userProfile?.id, visibleRooms],
-  );
-
-  const favoriteRooms = useMemo(
-    () => myRooms.filter((room) => userAccess[room.id]?.is_favorite),
-    [myRooms, userAccess],
-  );
-
-  const recentRooms = useMemo(
+  const conversationRooms = useMemo(
     () =>
-      [...myRooms].sort((left, right) => {
+      [...visibleRooms].sort((left, right) => {
         const leftDate = userAccess[left.id]?.last_seen_at ?? left.last_activity_at ?? left.created_at;
         const rightDate = userAccess[right.id]?.last_seen_at ?? right.last_activity_at ?? right.created_at;
         return Date.parse(rightDate) - Date.parse(leftDate);
       }),
-    [myRooms, userAccess],
+    [userAccess, visibleRooms],
   );
 
-  const ownedRooms = useMemo(
-    () => myRooms.filter((room) => room.created_by === userProfile?.id),
-    [myRooms, userProfile?.id],
+  const myRoomsCount = useMemo(
+    () => rooms.filter((room) => room.created_by === userProfile?.id || Boolean(userAccess[room.id])).length,
+    [rooms, userAccess, userProfile?.id],
   );
 
-  const communityRooms = useMemo(
-    () =>
-      [...visibleRooms]
-        .filter((room) => room.visibility === 'public')
-        .sort((left, right) => (roomMemberCounts[right.id] ?? 0) - (roomMemberCounts[left.id] ?? 0)),
-    [roomMemberCounts, visibleRooms],
+  const favoriteCount = useMemo(
+    () => Object.values(userAccess).filter((room) => room.is_favorite).length,
+    [userAccess],
   );
 
-  const newestCommunityRooms = useMemo(
-    () =>
-      [...communityRooms].sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)),
-    [communityRooms],
+  const communityCount = useMemo(
+    () => rooms.filter((room) => !room.is_archived && room.visibility === 'public').length,
+    [rooms],
   );
 
   const greetingName = userProfile?.full_name?.split(' ')[0] || userProfile?.username || 'Usuario';
+  const securityZoneLabel = userProfile?.age_group === '+18' ? '18+ Zone' : 'Livre';
 
-  const renderRoomCollection = (title: string, subtitle: string, collection: RoomSummary[], emptyText: string) => (
-    <section className="page-stack home-collection">
-      <div className="home-collection__header">
-        <div className="home-section-copy">
-          <p className="eyebrow">{title}</p>
-          <p className="home-section-subtitle">{subtitle}</p>
-        </div>
-      </div>
+  const getRoomTimestampLabel = (room: RoomSummary) => {
+    const sourceDate = userAccess[room.id]?.last_seen_at ?? room.last_activity_at ?? room.created_at;
+    const parsed = new Date(sourceDate);
+    const today = new Date();
 
-      {collection.length === 0 ? (
-        <Card className="empty-state">
-          <Badge variant="warning">Vazio</Badge>
-          <h3 className="topbar__title">Nada por aqui</h3>
-          <p className="text-muted">{emptyText}</p>
-        </Card>
-      ) : (
-        <div className="room-grid home-room-grid">
-          {collection.map((room) => {
-            const directAccess =
-              (Boolean(userAccess[room.id]) || room.created_by === userProfile?.id) &&
-              !room.require_password_every_time &&
-              Boolean(room.password_verifier) &&
-              Boolean(sessionStorage.getItem(`room_key_${room.id}`));
+    const sameDay =
+      parsed.getDate() === today.getDate() &&
+      parsed.getMonth() === today.getMonth() &&
+      parsed.getFullYear() === today.getFullYear();
 
-            const presenceCount = roomMemberCounts[room.id] ?? 0;
-            const presenceLabel = presenceCount === 1 ? 'pessoa com acesso' : 'pessoas com acesso';
+    if (sameDay) {
+      return parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
 
-            return (
-              <RoomCard
-                key={`${title}-${room.id}`}
-                name={room.name}
-                roomId={room.id}
-                category={room.category}
-                ageGroup={room.age_group}
-                visibility={room.visibility}
-                messageTtlMinutes={room.message_ttl_minutes}
-                description={room.description}
-                presenceCount={presenceCount}
-                presenceLabel={presenceLabel}
-                selected={joiningRoomId === room.id}
-                directAccess={directAccess}
-                locked={!directAccess}
-                isFavorite={userAccess[room.id]?.is_favorite ?? false}
-                isOwner={(userAccess[room.id]?.role ?? (room.created_by === userProfile?.id ? 'owner' : 'member')) === 'owner'}
-                onShare={
-                  room.visibility === 'personal'
-                    ? undefined
-                    : () => {
-                        void shareRoomInvite({
-                          roomId: room.id,
-                          roomName: room.name,
-                          visibility: room.visibility,
-                          requirePasswordEveryTime: room.require_password_every_time,
-                        })
-                          .then((result) => {
-                            if (result === 'copied') {
-                              alert(
-                                room.require_password_every_time
-                                  ? 'Convite copiado. Envie a senha da sala separadamente.'
-                                  : 'Convite copiado para a area de transferencia.',
-                              );
-                            }
-                          })
-                          .catch((error: { name?: string }) => {
-                            if (error?.name !== 'AbortError') {
-                              alert('Nao foi possivel compartilhar o convite.');
-                            }
-                          });
-                      }
-                }
-                onToggleFavorite={() => void toggleFavorite(room)}
-                onRequestJoin={() => void tryJoinDirectly(room)}
-                joinForm={
-                  joiningRoomId === room.id ? (
-                    <form className="section-stack section-stack--sm" onSubmit={joinWithKey}>
-                      <PasswordField
-                        label="Chave da sala"
-                        autoFocus
-                        placeholder="Digite a senha de acesso"
-                        value={inputKey}
-                        onChange={(event) => setInputKey(event.target.value)}
-                        required
-                      />
-                      <div className="toolbar-row">
-                        <Button variant="ghost" type="button" onClick={() => setJoiningRoomId(null)}>
-                          Cancelar
-                        </Button>
-                        <Button type="submit">Entrar</Button>
-                      </div>
-                    </form>
-                  ) : null
-                }
-              />
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
+    return parsed.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  };
+
+  const hasDirectAccess = (room: RoomSummary) =>
+    (Boolean(userAccess[room.id]) || room.created_by === userProfile?.id) &&
+    !room.require_password_every_time &&
+    Boolean(room.password_verifier) &&
+    Boolean(sessionStorage.getItem(`room_key_${room.id}`));
 
   return (
-    <div className="page-shell home-page">
-      <main className="page-container page-stack home-main">
-        <section className="home-hero">
-          <div className="home-greeting">
-            <div className="section-stack section-stack--sm">
-              <h1 className="home-greeting__title">Oi, {greetingName}</h1>
-              <p className="home-greeting__subtitle">Suas salas privadas e a comunidade no mesmo painel.</p>
-            </div>
-
-            <div className="home-greeting__actions">
-              <button type="button" className="home-avatar-button" onClick={onOpenProfile} aria-label="Abrir perfil">
-                <Avatar
-                  fallback={greetingName}
-                  size="md"
-                  emoji={userProfile?.profile_emoji || DEFAULT_PROFILE_EMOJI}
-                />
-              </button>
+    <div className="page-shell home-page vault-home-shell">
+      <header className="vault-home-topbar">
+        <div className="vault-home-topbar__inner">
+          <div className="vault-brand">
+            <Avatar fallback={greetingName} size="sm" emoji={userProfile?.profile_emoji || DEFAULT_PROFILE_EMOJI} />
+            <div>
+              <h1 className="vault-brand__title">The Vault</h1>
+              <p className="home-section-subtitle">{greetingName}, suas conversas seguras estao aqui.</p>
             </div>
           </div>
 
-          <SearchBarPill
-            label="Buscar salas"
-            placeholder="Buscar salas, codigos ou categorias"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            trailing={
-              <button type="button" className="home-search-filter" aria-label="Filtros">
-                <SlidersHorizontal size={18} />
-              </button>
-            }
-          />
+          <div className="toolbar-row">
+            <span className="vault-secure-pill">
+              <ShieldCheck size={12} />
+              Secure
+            </span>
+            <button type="button" className="home-avatar-button" onClick={onOpenProfile} aria-label="Abrir perfil">
+              <Avatar fallback={greetingName} size="sm" emoji={userProfile?.profile_emoji || DEFAULT_PROFILE_EMOJI} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="page-container page-stack home-main vault-home-main">
+        <SearchBarPill
+          label="Buscar salas"
+          placeholder="Buscar salas, codigos ou categorias"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          trailing={
+            <button type="button" className="home-search-filter" aria-label="Filtros">
+              <SlidersHorizontal size={18} />
+            </button>
+          }
+        />
+
+        <section className="vault-status-grid" aria-label="Visao de seguranca">
+          <Card className="vault-status-card">
+            <div className="vault-status-card__head">
+              <LockKeyhole size={18} />
+              <p className="vault-status-card__label">Keys ativas</p>
+            </div>
+            <p className="vault-status-card__value">{myRoomsCount}</p>
+            <p className="vault-status-card__description">salas com acesso registrado neste dispositivo</p>
+          </Card>
+
+          <Card className="vault-status-card">
+            <div className="vault-status-card__head">
+              <Star size={18} />
+              <p className="vault-status-card__label">Zona segura</p>
+            </div>
+            <p className="vault-status-card__value">{securityZoneLabel}</p>
+            <p className="vault-status-card__description">{favoriteCount} favoritas e {communityCount} salas publicas</p>
+          </Card>
         </section>
 
-        <section className="page-stack section-stack--sm">
+        <section className="section-stack section-stack--sm">
           <div className="home-section-header">
             <div className="home-section-copy">
-              <p className="home-section-title">Explorar</p>
-              <p className="home-section-subtitle">Separe suas salas, a comunidade publica e os acessos recorrentes.</p>
+              <p className="home-section-title">Conversas</p>
+              <p className="home-section-subtitle">Estrutura inspirada no roadmap: lista densa, contexto rapido e entrada direta.</p>
             </div>
-            <Button variant="ghost" size="sm" onClick={onOpenCreate}>
+            <Button variant="ghost" size="sm" onClick={onOpenCreate} leadingIcon={<PlusSquare size={16} />}>
               Criar sala
             </Button>
           </div>
 
-          <div className="home-filter-row">
+          <div className="vault-filter-row">
             {FILTER_OPTIONS.map((filter) => (
               <Chip
                 key={filter.id}
@@ -569,48 +692,111 @@ export default function RoomList({
           </div>
         </section>
 
-        {renderRoomCollection(
-          'Minhas salas',
-          'Recentes',
-          recentRooms.slice(0, 6),
-          'As salas em que voce entra vao aparecer aqui com base no ultimo acesso.',
-        )}
+        <section className="vault-conversation-block">
+          <div className="vault-conversation-header">
+            <p className="vault-conversation-title">Mensagens recentes</p>
+            <p className="vault-conversation-subtitle">{conversationRooms.length} conversa(s) visiveis</p>
+          </div>
 
-        {renderRoomCollection(
-          'Minhas salas',
-          'Favoritas',
-          favoriteRooms,
-          'Marque como favorita para fixar as salas que mais importam.',
-        )}
+          {conversationRooms.length === 0 ? (
+            <Card className="empty-state">
+              <Badge variant="warning">Vazio</Badge>
+              <h3 className="topbar__title">Nada por aqui</h3>
+              <p className="text-muted">Nenhuma sala combinou com os filtros e busca atuais.</p>
+            </Card>
+          ) : (
+            <div className="vault-conversation-list">
+              {conversationRooms.map((room) => {
+                const directAccess = hasDirectAccess(room);
+                const selected = joiningRoomId === room.id;
+                const presenceCount = roomMemberCounts[room.id] ?? 0;
 
-        {renderRoomCollection(
-          'Minhas salas',
-          'Criadas por mim',
-          ownedRooms,
-          'As salas criadas por voce vao aparecer aqui.',
-        )}
+                return (
+                  <article
+                    key={room.id}
+                    className={`vault-room-item ${selected ? 'vault-room-item--active' : ''}`}
+                    aria-label={`Sala ${room.name}`}
+                  >
+                    <div className="vault-room-item__row">
+                      <button type="button" className="vault-room-item__button" onClick={() => void tryJoinDirectly(room)}>
+                        <span className="vault-room-item__avatar" aria-hidden="true">
+                          <img src="/chatcripto-logo.png" alt="" />
+                          {presenceCount > 0 ? <span className="vault-room-item__presence" /> : null}
+                        </span>
 
-        {renderRoomCollection(
-          'Comunidade',
-          'Em alta',
-          communityRooms.slice(0, 6),
-          'Nenhuma sala publica combinou com o filtro atual.',
-        )}
+                        <span className="vault-room-item__content">
+                          <span className="vault-room-item__head">
+                            <span className="vault-room-item__name">{room.name}</span>
+                            <span className="vault-room-item__time">{getRoomTimestampLabel(room)}</span>
+                          </span>
+                          <span className="vault-room-item__description">
+                            {room.description?.trim() || `Sala ${VISIBILITY_LABELS[room.visibility].toLowerCase()} na categoria ${room.category.toLowerCase()}.`}
+                          </span>
+                          <span className="vault-room-item__meta">
+                            <span className="vault-room-item__badge">{room.age_group}</span>
+                            <span className="vault-room-item__badge">{VISIBILITY_LABELS[room.visibility]}</span>
+                            <span className="vault-room-item__badge vault-room-item__badge--ttl">{room.message_ttl_minutes}m</span>
+                            {presenceCount > 0 ? <span className="vault-room-item__badge">{presenceCount} online</span> : null}
+                          </span>
+                        </span>
 
-        {renderRoomCollection(
-          'Comunidade',
-          'Novas',
-          newestCommunityRooms.slice(0, 6),
-          'Ainda nao ha salas novas disponiveis para o seu perfil.',
-        )}
+                        <span className="vault-room-item__icon" aria-hidden="true">
+                          {directAccess ? <ShieldCheck size={14} /> : <ArrowRight size={14} />}
+                        </span>
+                      </button>
 
-        <Card className="section-stack invite-entry">
+                      <div className="vault-room-item__actions">
+                        <button
+                          type="button"
+                          className={`vault-room-item__icon ${userAccess[room.id]?.is_favorite ? 'vault-room-item__icon--active' : ''}`}
+                          onClick={() => void toggleFavorite(room)}
+                          aria-label={userAccess[room.id]?.is_favorite ? 'Remover dos favoritos' : 'Favoritar sala'}
+                        >
+                          <Star size={14} />
+                        </button>
+                        {room.visibility !== 'personal' ? (
+                          <button
+                            type="button"
+                            className="vault-room-item__icon"
+                            onClick={() => void handleShareRoom(room)}
+                            aria-label="Compartilhar sala"
+                          >
+                            <Link2 size={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {selected ? (
+                      <form className="vault-room-item__join section-stack section-stack--sm" onSubmit={joinWithKey}>
+                        <PasswordField
+                          label="Chave da sala"
+                          autoFocus
+                          placeholder="Digite a senha de acesso"
+                          value={inputKey}
+                          onChange={(event) => setInputKey(event.target.value)}
+                          required
+                        />
+                        <div className="vault-room-item__join-actions">
+                          <Button variant="ghost" type="button" onClick={() => setJoiningRoomId(null)}>
+                            Cancelar
+                          </Button>
+                          <Button type="submit">Entrar</Button>
+                        </div>
+                      </form>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <Card className="section-stack vault-invite-entry">
           <div className="section-stack section-stack--sm">
             <p className="eyebrow">Entrar por convite</p>
             <h2 className="topbar__title">Cole um link ou codigo</h2>
-            <p className="text-muted">
-              Funciona para salas nao listadas e convites diretos compartilhados fora da comunidade.
-            </p>
+            <p className="text-muted">Funciona para salas nao listadas e convites diretos compartilhados fora da comunidade.</p>
           </div>
           <form className="invite-entry__form" onSubmit={handleInviteSubmit}>
             <Input
