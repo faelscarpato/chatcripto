@@ -75,16 +75,58 @@ interface RpcErrorLike {
   status?: number;
 }
 
+type RpcPayloadMode = 'prefixed' | 'param';
+
 function isRpcMissingError(error: unknown) {
   const candidate = (error ?? {}) as RpcErrorLike;
   return (
     candidate.status === 300 ||
     candidate.status === 404 ||
+    candidate.code === '42883' ||
     candidate.code === 'PGRST203' ||
     candidate.code === 'PGRST202' ||
     candidate.message?.toLowerCase().includes('could not choose the best candidate function') === true ||
     candidate.message?.toLowerCase().includes('could not find the function') === true
   );
+}
+
+function normalizeJoinRpcResult(data: unknown): JoinRoomResult | null {
+  if (Array.isArray(data) && data.length > 0) {
+    const first = data[0] as Record<string, unknown>;
+    if (typeof first.ok === 'boolean') {
+      return {
+        ok: first.ok,
+        reason: typeof first.reason === 'string' ? first.reason : first.ok ? 'ok' : 'unknown',
+      };
+    }
+
+    if (typeof first.success === 'boolean') {
+      return {
+        ok: first.success,
+        reason: typeof first.message === 'string' ? first.message : first.success ? 'ok' : 'unknown',
+      };
+    }
+  }
+
+  if (data && typeof data === 'object') {
+    const payload = data as Record<string, unknown>;
+
+    if (typeof payload.ok === 'boolean') {
+      return {
+        ok: payload.ok,
+        reason: typeof payload.reason === 'string' ? payload.reason : payload.ok ? 'ok' : 'unknown',
+      };
+    }
+
+    if (typeof payload.success === 'boolean') {
+      return {
+        ok: payload.success,
+        reason: typeof payload.message === 'string' ? payload.message : payload.success ? 'ok' : 'unknown',
+      };
+    }
+  }
+
+  return null;
 }
 
 function parseInviteInput(value: string) {
@@ -126,6 +168,8 @@ export default function RoomList({
   const [selectedFilter, setSelectedFilter] = useState<(typeof FILTER_OPTIONS)[number]['id']>('all');
   const [rpcInviteAvailable, setRpcInviteAvailable] = useState(true);
   const [rpcJoinAvailable, setRpcJoinAvailable] = useState(true);
+  const [rpcInviteMode, setRpcInviteMode] = useState<'prefixed' | 'param'>('prefixed');
+  const [rpcJoinMode, setRpcJoinMode] = useState<'prefixed' | 'param'>('prefixed');
 
   useEffect(() => {
     void fetchProfile();
@@ -252,14 +296,36 @@ export default function RoomList({
       return fallbackData as RoomSummary;
     }
 
-    const { data, error } = await supabase.rpc('get_room_invite_snapshot', { p_room_id: roomId });
-    if (!error && Array.isArray(data) && data.length > 0) {
-      const room = toRoomSummary(data[0] as InviteSnapshot);
-      setRooms((current) => (current.some((item) => item.id === room.id) ? current : [room, ...current]));
-      return room;
+    const inviteModesToTry: RpcPayloadMode[] =
+      rpcInviteMode === 'prefixed' ? ['prefixed', 'param'] : ['param', 'prefixed'];
+    let inviteMissingErrorCount = 0;
+
+    for (const mode of inviteModesToTry) {
+      const payload = mode === 'prefixed' ? { p_room_id: roomId } : { room_id_param: roomId };
+      const { data, error } = await supabase.rpc('get_room_invite_snapshot', payload);
+
+      if (!error) {
+        if (mode !== rpcInviteMode) {
+          setRpcInviteMode(mode);
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+          const room = toRoomSummary(data[0] as InviteSnapshot);
+          setRooms((current) => (current.some((item) => item.id === room.id) ? current : [room, ...current]));
+          return room;
+        }
+
+        return null;
+      }
+
+      if (!isRpcMissingError(error)) {
+        return null;
+      }
+
+      inviteMissingErrorCount += 1;
     }
 
-    if (!isRpcMissingError(error)) {
+    if (inviteMissingErrorCount < inviteModesToTry.length) {
       return null;
     }
 
@@ -339,30 +405,45 @@ export default function RoomList({
       return joinRoomLegacy(room, password);
     }
 
-    const { data, error } = await supabase.rpc('join_room_with_password', {
-      p_room_id: room.id,
-      p_password: password,
-    });
+    const joinModesToTry: RpcPayloadMode[] = rpcJoinMode === 'prefixed' ? ['prefixed', 'param'] : ['param', 'prefixed'];
+    let joinMissingErrorCount = 0;
 
-    if (error && isRpcMissingError(error)) {
+    for (const mode of joinModesToTry) {
+      const payload = mode === 'prefixed'
+        ? { p_room_id: room.id, p_password: password }
+        : { room_id_param: room.id, password_param: password };
+      const { data, error } = await supabase.rpc('join_room_with_password', payload);
+
+      if (!error) {
+        if (mode !== rpcJoinMode) {
+          setRpcJoinMode(mode);
+        }
+
+        const normalized = normalizeJoinRpcResult(data);
+        if (!normalized) {
+          return { ok: false, reason: 'invalid_response' } as JoinRoomResult;
+        }
+
+        if (normalized.ok) {
+          await fetchUserAccess();
+        }
+
+        return normalized;
+      }
+
+      if (!isRpcMissingError(error)) {
+        return { ok: false, reason: 'rpc_error' } as JoinRoomResult;
+      }
+
+      joinMissingErrorCount += 1;
+    }
+
+    if (joinMissingErrorCount >= joinModesToTry.length) {
       setRpcJoinAvailable(false);
       return joinRoomLegacy(room, password);
     }
 
-    if (error) {
-      return { ok: false, reason: 'rpc_error' } as JoinRoomResult;
-    }
-
-    const first = Array.isArray(data) && data.length > 0 ? (data[0] as JoinRoomResult) : null;
-    if (!first) {
-      return { ok: false, reason: 'invalid_response' } as JoinRoomResult;
-    }
-
-    if (first.ok) {
-      await fetchUserAccess();
-    }
-
-    return first;
+    return { ok: false, reason: 'rpc_error' } as JoinRoomResult;
   };
 
   const openRoomWithKey = async (room: RoomSummary, password: string) => {
